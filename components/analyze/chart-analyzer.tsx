@@ -510,11 +510,16 @@ export function ChartAnalyzer() {
   const [symbolSaved, setSymbolSaved] = useState<string | null>(null);
   const [alertsSet, setAlertsSet] = useState<string | null>(null);
   const [alertSymbol, setAlertSymbol] = useState("");
+  const [alertSymbolError, setAlertSymbolError] = useState(false);
 
   function handleSetAlerts() {
     if (!result) return;
     const sym = symbolSaved || alertSymbol.trim().toUpperCase();
-    if (!sym) return;
+    if (!sym) {
+      setAlertSymbolError(true);
+      return;
+    }
+    setAlertSymbolError(false);
     const levels: { label: string; field: string | undefined }[] = [
       { label: "Entry", field: result.sniper_entry },
       { label: "SL", field: result.sl },
@@ -623,6 +628,7 @@ export function ChartAnalyzer() {
     setSymbolSaved(null);
     setAlertsSet(null);
     setAlertSymbol("");
+    setAlertSymbolError(false);
 
     if (!isSameSession && !isFolderContinuation) {
       setResult(null);
@@ -905,28 +911,34 @@ export function ChartAnalyzer() {
 
           {/* ── Set Price Alerts ── */}
           {saved && !alertsSet && (
-            <div className="flex w-full flex-col sm:flex-row items-stretch sm:items-center gap-3 rounded-xl border border-[#0EA5E9]/20 bg-gradient-to-r from-[#0EA5E9]/10 via-[#0EA5E9]/5 to-[#8B5CF6]/10 px-5 py-4">
-              {!symbolSaved && (
-                <input
-                  type="text"
-                  value={alertSymbol}
-                  onChange={(e) => setAlertSymbol(e.target.value.toUpperCase())}
-                  placeholder="Symbol, e.g. XAUUSD"
-                  className="h-10 w-full sm:w-40 rounded-lg border border-[#0EA5E9]/20 bg-black/30 px-3 font-mono text-sm font-semibold text-foreground placeholder:font-normal placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]/40"
-                />
+            <div className="flex w-full flex-col gap-3 rounded-xl border border-[#0EA5E9]/20 bg-gradient-to-r from-[#0EA5E9]/10 via-[#0EA5E9]/5 to-[#8B5CF6]/10 px-5 py-4">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                {!symbolSaved && (
+                  <div className="shrink-0">
+                    <input
+                      type="text"
+                      value={alertSymbol}
+                      onChange={(e) => { setAlertSymbol(e.target.value.toUpperCase()); setAlertSymbolError(false); }}
+                      placeholder="Symbol, e.g. XAUUSD"
+                      className={`h-10 w-full sm:w-40 rounded-lg border bg-black/30 px-3 font-mono text-sm font-semibold text-foreground placeholder:font-normal placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]/40 ${alertSymbolError ? "border-red-400/50" : "border-[#0EA5E9]/20"}`}
+                    />
+                  </div>
+                )}
+                <button
+                  onClick={handleSetAlerts}
+                  className="flex flex-1 items-center justify-center gap-3 rounded-lg px-4 py-2.5 text-sm font-semibold text-[#0EA5E9] transition-all duration-200 hover:bg-[#0EA5E9]/10"
+                >
+                  <Bell className="h-5 w-5" />
+                  {symbolSaved
+                    ? `Set Price Alerts for ${symbolSaved}`
+                    : alertSymbol.trim()
+                      ? `Set Price Alerts for ${alertSymbol.trim()}`
+                      : "Set Price Alerts"}
+                </button>
+              </div>
+              {alertSymbolError && (
+                <p className="text-xs text-red-400">Enter an instrument symbol (e.g. XAUUSD) to set alerts</p>
               )}
-              <button
-                onClick={handleSetAlerts}
-                disabled={!symbolSaved && !alertSymbol.trim()}
-                className="flex flex-1 items-center justify-center gap-3 rounded-lg px-4 py-2.5 text-sm font-semibold text-[#0EA5E9] transition-all duration-200 hover:bg-[#0EA5E9]/10 disabled:opacity-40 disabled:pointer-events-none"
-              >
-                <Bell className="h-5 w-5" />
-                {symbolSaved
-                  ? `Set Price Alerts for ${symbolSaved}`
-                  : alertSymbol.trim()
-                    ? `Set Price Alerts for ${alertSymbol.trim()}`
-                    : "Enter symbol to set alerts"}
-              </button>
             </div>
           )}
           {alertsSet && (
