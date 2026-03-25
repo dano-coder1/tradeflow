@@ -1,6 +1,6 @@
 import { Trade } from "@/types/trade";
-import { Card, CardContent } from "@/components/ui/card";
 import { TrendingUp, TrendingDown, Target, BarChart2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 function fmt(n: number | null, decimals = 2) {
   if (n == null) return "—";
@@ -24,44 +24,60 @@ export function StatsCards({ trades }: { trades: Trade[] }) {
       value: trades.length.toString(),
       sub: `${closed.length} closed`,
       icon: BarChart2,
-      color: "text-primary",
+      color: "text-[#0EA5E9]",
+      glow: "group-hover:shadow-[0_0_20px_rgba(14,165,233,0.1)]",
     },
     {
       label: "Win Rate",
       value: winRate != null ? `${winRate.toFixed(1)}%` : "—",
       sub: `${wins}W / ${losses}L`,
       icon: Target,
-      color: winRate != null && winRate >= 50 ? "text-success" : "text-destructive",
+      color: winRate != null && winRate >= 50 ? "text-emerald-400" : "text-red-400",
+      glow: winRate != null && winRate >= 50
+        ? "group-hover:shadow-[0_0_20px_rgba(34,197,94,0.1)]"
+        : "group-hover:shadow-[0_0_20px_rgba(239,68,68,0.1)]",
     },
     {
       label: "Total PnL",
       value: `${totalPnl >= 0 ? "+" : ""}${fmt(totalPnl)}`,
       sub: "closed trades",
       icon: totalPnl >= 0 ? TrendingUp : TrendingDown,
-      color: totalPnl >= 0 ? "text-success" : "text-destructive",
+      color: totalPnl >= 0 ? "text-emerald-400" : "text-red-400",
+      glow: totalPnl >= 0
+        ? "group-hover:shadow-[0_0_20px_rgba(34,197,94,0.1)]"
+        : "group-hover:shadow-[0_0_20px_rgba(239,68,68,0.1)]",
     },
     {
       label: "Avg R:R",
       value: avgRR != null ? `1:${fmt(avgRR)}` : "—",
       sub: "closed trades",
       icon: BarChart2,
-      color: "text-warning",
+      color: "text-amber-400",
+      glow: "group-hover:shadow-[0_0_20px_rgba(245,158,11,0.1)]",
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 w-full">
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 w-full">
       {stats.map((s) => (
-        <Card key={s.label} className="w-full">
-          <CardContent className="flex items-start justify-between p-5">
+        <div
+          key={s.label}
+          className={cn(
+            "group glass rounded-xl p-5 transition-all duration-300",
+            s.glow
+          )}
+        >
+          <div className="flex items-start justify-between">
             <div className="min-w-0">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{s.label}</p>
-              <p className={`mt-1.5 text-3xl font-extrabold tracking-tight ${s.color}`}>{s.value}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{s.sub}</p>
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">{s.label}</p>
+              <p className={`mt-2 text-3xl font-extrabold tracking-tight ${s.color}`}>{s.value}</p>
+              <p className="mt-1 text-xs text-muted-foreground/60">{s.sub}</p>
             </div>
-            <s.icon className={`h-5 w-5 shrink-0 ${s.color} opacity-50`} />
-          </CardContent>
-        </Card>
+            <div className={cn("rounded-lg bg-white/[0.04] p-2", s.color)}>
+              <s.icon className="h-4 w-4 opacity-60" />
+            </div>
+          </div>
+        </div>
       ))}
     </div>
   );

@@ -10,7 +10,7 @@ export default function DashboardLayout({
     <div className="flex min-h-screen flex-col">
       <Navbar />
       <PriceAlertMonitor />
-      <main className="flex-1">
+      <main className="flex-1 bg-grid-pattern">
         <div className="mx-auto max-w-7xl px-4 py-6">{children}</div>
       </main>
     </div>

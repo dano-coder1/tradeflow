@@ -22,19 +22,19 @@ export function Button({
     <button
       disabled={disabled || loading}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-        "disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition-all duration-200",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "disabled:pointer-events-none disabled:opacity-40",
         variant === "default" &&
-          "bg-primary text-primary-foreground hover:bg-primary/90",
+          "btn-gradient text-white",
         variant === "destructive" &&
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         variant === "outline" &&
-          "border border-border bg-transparent text-foreground hover:bg-accent",
+          "border border-white/[0.08] bg-white/[0.03] text-foreground hover:bg-white/[0.06] hover:border-white/[0.12]",
         variant === "secondary" &&
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+          "bg-white/[0.05] text-secondary-foreground hover:bg-white/[0.08]",
         variant === "ghost" &&
-          "bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
+          "bg-transparent text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
         size === "sm" && "h-8 px-3 text-xs",
         size === "md" && "h-10 px-4 text-sm",
         size === "lg" && "h-11 px-6 text-base",

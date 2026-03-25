@@ -33,7 +33,7 @@ export default async function StrategyPage() {
           <Brain className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold">Strategy Setup</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight text-gradient">Strategy Setup</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {hasProfile
               ? "Update your trading strategy. AI analysis and trade reviews will use these rules."

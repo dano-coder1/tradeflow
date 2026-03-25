@@ -45,7 +45,7 @@ export default async function DashboardPage() {
       {/* Top bar */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight text-gradient">Dashboard</h1>
           <p className="text-sm text-muted-foreground">{user.email}</p>
         </div>
         <Link

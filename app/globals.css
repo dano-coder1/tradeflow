@@ -1,29 +1,30 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0f1117;
-  --foreground: #e2e8f0;
-  --card: #1a1f2e;
-  --card-foreground: #e2e8f0;
-  --popover: #1a1f2e;
-  --popover-foreground: #e2e8f0;
-  --primary: #3b82f6;
+  --background: #080808;
+  --foreground: #e4e4e7;
+  --card: rgba(17, 17, 17, 0.7);
+  --card-foreground: #e4e4e7;
+  --popover: #111111;
+  --popover-foreground: #e4e4e7;
+  --primary: #0EA5E9;
   --primary-foreground: #ffffff;
-  --secondary: #1e2432;
-  --secondary-foreground: #94a3b8;
-  --muted: #1e2432;
-  --muted-foreground: #64748b;
-  --accent: #1e2432;
-  --accent-foreground: #e2e8f0;
+  --secondary: #141419;
+  --secondary-foreground: #a1a1aa;
+  --muted: #141419;
+  --muted-foreground: #71717a;
+  --accent: #141419;
+  --accent-foreground: #e4e4e7;
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
   --success: #22c55e;
   --success-foreground: #ffffff;
   --warning: #f59e0b;
   --warning-foreground: #ffffff;
-  --border: #2d3748;
-  --input: #2d3748;
-  --ring: #3b82f6;
+  --border: rgba(255, 255, 255, 0.06);
+  --input: #141419;
+  --ring: #0EA5E9;
+  --ai-purple: #8B5CF6;
 }
 
 @theme inline {
@@ -62,4 +63,74 @@ body {
 
 * {
   border-color: var(--border);
+}
+
+/* ── Grid dot background ─────────────────────────────────────────────────── */
+.bg-grid-pattern {
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ── Gradient text ───────────────────────────────────────────────────────── */
+.text-gradient {
+  background: linear-gradient(135deg, #0EA5E9 0%, #8B5CF6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Glow effects ────────────────────────────────────────────────────────── */
+.glow-blue {
+  box-shadow: 0 0 20px rgba(14, 165, 233, 0.15), 0 0 60px rgba(14, 165, 233, 0.05);
+}
+.glow-blue-sm {
+  box-shadow: 0 0 12px rgba(14, 165, 233, 0.1);
+}
+.glow-purple {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.15), 0 0 60px rgba(139, 92, 246, 0.05);
+}
+
+/* ── Glassmorphism ───────────────────────────────────────────────────────── */
+.glass {
+  background: rgba(17, 17, 17, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.glass-strong {
+  background: rgba(17, 17, 17, 0.8);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ── Gradient button ─────────────────────────────────────────────────────── */
+.btn-gradient {
+  background: linear-gradient(135deg, #0EA5E9 0%, #8B5CF6 100%);
+  transition: box-shadow 0.2s ease, transform 0.15s ease;
+}
+.btn-gradient:hover {
+  box-shadow: 0 0 24px rgba(14, 165, 233, 0.3), 0 0 60px rgba(139, 92, 246, 0.15);
+}
+.btn-gradient:active {
+  transform: scale(0.98);
+}
+
+/* ── Animated auth background ────────────────────────────────────────────── */
+.auth-bg {
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(14, 165, 233, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(139, 92, 246, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 100%, rgba(14, 165, 233, 0.04) 0%, transparent 40%),
+    var(--background);
+}
+
+/* ── Smooth fade-in ──────────────────────────────────────────────────────── */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fade-in-up 0.4s ease-out both;
 }
