@@ -3,12 +3,29 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronUp, FolderOpen } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
-import type { AnalysisByInstrument } from "@/app/api/analyses/by-instrument/route";
+import { ChevronDown, ChevronUp, FolderOpen, GitBranch, Play } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import type { AnalysisByInstrument, AnalysisEntry } from "@/app/api/analyses/by-instrument/route";
+import type { ChartAnalysis } from "@/types/ai";
 
 function InstrumentFolder({ group }: { group: AnalysisByInstrument }) {
   const [open, setOpen] = useState(false);
+
+  function handleContinue(a: AnalysisEntry, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    window.dispatchEvent(
+      new CustomEvent("tf:continue-analysis", {
+        detail: {
+          analysis: a.output_json,
+          symbol: group.symbol,
+          fromId: a.id,
+        },
+      })
+    );
+    // Scroll to analyzer
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   return (
     <div className="border-b border-border/40 last:border-0">
@@ -35,12 +52,19 @@ function InstrumentFolder({ group }: { group: AnalysisByInstrument }) {
           {group.analyses.map((a) => {
             const pct = Math.round(a.confidence * 100);
             return (
-              <Link
+              <div
                 key={a.id}
-                href={`/dashboard/analyze/${a.id}`}
-                className="flex items-center justify-between gap-3 px-5 py-2.5 transition-colors hover:bg-accent/20"
+                className="flex items-center justify-between gap-2 px-5 py-2.5 transition-colors hover:bg-accent/20"
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <Link
+                  href={`/dashboard/analyze/${a.id}`}
+                  className="flex flex-1 items-center gap-2.5 min-w-0"
+                >
+                  {a.continued_from && (
+                    <span title="Continuation">
+                      <GitBranch className="h-3 w-3 shrink-0 text-primary/50" />
+                    </span>
+                  )}
                   <span
                     className={cn(
                       "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold uppercase",
@@ -61,17 +85,29 @@ function InstrumentFolder({ group }: { group: AnalysisByInstrument }) {
                   <span className="truncate text-xs text-muted-foreground">
                     {a.telegram_block}
                   </span>
+                </Link>
+                <div className="flex shrink-0 items-center gap-3">
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(a.created_at).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground/50">{pct}%</p>
+                  </div>
+                  <button
+                    onClick={(e) => handleContinue(a, e)}
+                    title="Continue this analysis with new screenshots"
+                    className="flex items-center gap-1 rounded-md border border-primary/25 bg-primary/5 px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:border-primary/50 hover:bg-primary/10"
+                  >
+                    <Play className="h-3 w-3" />
+                    Continue
+                  </button>
                 </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(a.created_at).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground/50">{pct}%</p>
-                </div>
-              </Link>
+              </div>
             );
           })}
         </div>
@@ -106,7 +142,6 @@ export function AnalysesByInstrument() {
   useEffect(() => {
     fetchGroups();
 
-    // Re-fetch whenever chart-analyzer successfully tags a symbol
     function handleUpdate() {
       setLoading(true);
       fetchGroups();

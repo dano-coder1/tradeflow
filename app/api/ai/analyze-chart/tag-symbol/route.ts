@@ -13,8 +13,12 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { analysisId, symbol } = body as { analysisId: string; symbol: string };
-  console.log("[tag-symbol] received:", { analysisId, symbol, userId: user.id });
+  const { analysisId, symbol, continuedFrom } = body as {
+    analysisId: string;
+    symbol: string;
+    continuedFrom?: string;
+  };
+  console.log("[tag-symbol] received:", { analysisId, symbol, continuedFrom, userId: user.id });
 
   if (!analysisId || !symbol)
     return NextResponse.json({ error: "analysisId and symbol required" }, { status: 400 });
@@ -40,7 +44,13 @@ export async function PATCH(req: NextRequest) {
 
   console.log("[tag-symbol] fetched analysis, merging _symbol:", normalized);
 
-  const updatedJson = { ...(current.output_json as object), _symbol: normalized };
+  const updatedJson: Record<string, unknown> = {
+    ...(current.output_json as object),
+    _symbol: normalized,
+  };
+  if (continuedFrom) {
+    updatedJson._continued_from = continuedFrom;
+  }
 
   const { error: updateError } = await supabase
     .from("analysis_runs")

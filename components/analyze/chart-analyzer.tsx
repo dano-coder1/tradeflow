@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ChartAnalysis, SmcReasons } from "@/types/ai";
@@ -26,6 +26,7 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -505,6 +506,33 @@ export function ChartAnalyzer() {
   const [historyKey, setHistoryKey] = useState(0);
   const [symbol, setSymbol] = useState("");
   const [symbolSaved, setSymbolSaved] = useState<string | null>(null);
+  const [continuingFrom, setContinuingFrom] = useState<{
+    analysis: ChartAnalysis;
+    symbol: string;
+    fromId: string;
+  } | null>(null);
+
+  // Listen for "Continue" clicks from instrument folders
+  useEffect(() => {
+    function handleContinue(e: Event) {
+      const detail = (e as CustomEvent).detail as {
+        analysis: ChartAnalysis;
+        symbol: string;
+        fromId: string;
+      };
+      setContinuingFrom(detail);
+      setResult(null);
+      setActiveAnalysisId(null);
+      setImages([]);
+      setSaved(false);
+      setSaveError(null);
+      setChanges([]);
+      setSymbolSaved(null);
+      setSymbol(detail.symbol);
+    }
+    window.addEventListener("tf:continue-analysis", handleContinue);
+    return () => window.removeEventListener("tf:continue-analysis", handleContinue);
+  }, []);
 
   async function handleFiles(files: FileList) {
     const remaining = 6 - images.length;
@@ -545,8 +573,11 @@ export function ChartAnalyzer() {
   async function handleAnalyze() {
     if (images.length === 0) return;
 
-    const isContinuation = result !== null && activeAnalysisId !== null;
-    const prevSnapshot = result;
+    // Same-session: user adds screenshots to an active analysis → UPDATE existing record
+    const isSameSession = result !== null && activeAnalysisId !== null && !continuingFrom;
+    // Folder continuation: user clicked Continue in a folder → NEW record with prev context
+    const isFolderContinuation = continuingFrom !== null;
+    const prevSnapshot = isSameSession ? result : null;
 
     setAnalyzing(true);
     setError(null);
@@ -555,16 +586,19 @@ export function ChartAnalyzer() {
     setChanges([]);
     setSymbolSaved(null);
 
-    if (!isContinuation) {
+    if (!isSameSession && !isFolderContinuation) {
       setResult(null);
       setActiveAnalysisId(null);
     }
 
     try {
       const payload: Record<string, unknown> = { imageUrls: images };
-      if (isContinuation) {
+      if (isSameSession) {
         payload.previousAnalysis = result;
         payload.analysisId = activeAnalysisId;
+      } else if (isFolderContinuation) {
+        // Send previous analysis as context but NO analysisId → creates new record
+        payload.previousAnalysis = continuingFrom.analysis;
       }
 
       const res = await fetch("/api/ai/analyze-chart", {
@@ -603,7 +637,11 @@ export function ChartAnalyzer() {
             const tagRes = await fetch("/api/ai/analyze-chart/tag-symbol", {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ analysisId: analysis.analysisId, symbol: symbolToTag }),
+              body: JSON.stringify({
+                analysisId: analysis.analysisId,
+                symbol: symbolToTag,
+                ...(isFolderContinuation ? { continuedFrom: continuingFrom.fromId } : {}),
+              }),
             });
             const tagJson = await tagRes.json().catch(() => ({}));
             if (!tagRes.ok) {
@@ -625,8 +663,11 @@ export function ChartAnalyzer() {
         setSaveError("Analysis complete but could not be saved to history.");
       }
 
-      if (isContinuation && prevSnapshot) {
+      if (isSameSession && prevSnapshot) {
         setChanges(computeChanges(prevSnapshot, analysis));
+      }
+      if (isFolderContinuation) {
+        setContinuingFrom(null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analysis failed");
@@ -635,7 +676,7 @@ export function ChartAnalyzer() {
     }
   }
 
-  const isContinuation = result !== null && activeAnalysisId !== null;
+  const isContinuation = (result !== null && activeAnalysisId !== null) || continuingFrom !== null;
   const slots = Array.from({ length: 6 });
 
   return (
@@ -653,6 +694,28 @@ export function ChartAnalyzer() {
           if (detected) setSymbol(detected);
         }}
       />
+
+      {/* ── Folder continuation banner ── */}
+      {continuingFrom && (
+        <div className="flex items-center justify-between rounded-xl border border-primary/25 bg-primary/5 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm">
+            <GitBranch className="h-4 w-4 text-primary" />
+            <span>
+              Continuing <span className="font-mono font-bold text-primary">{continuingFrom.symbol}</span> analysis
+            </span>
+            <span className="text-xs text-muted-foreground">— upload new screenshots and click Analyze</span>
+          </div>
+          <button
+            onClick={() => {
+              setContinuingFrom(null);
+              setSymbol("");
+            }}
+            className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       {/* ── Upload section ── */}
       <Card>

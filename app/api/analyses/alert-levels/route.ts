@@ -8,6 +8,47 @@ export interface AlertLevel {
   levels: number[];
 }
 
+type AnalysisJson = ChartAnalysis & { _symbol?: string };
+
+const KNOWN_INSTRUMENTS = [
+  "XAUUSD", "XAGUSD",
+  "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
+  "EURGBP", "EURJPY", "GBPJPY", "CHFJPY", "AUDJPY",
+  "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+  "BTCUSD", "ETHUSD",
+  "NAS100", "US500", "SPX500", "US30", "DXY", "USOIL", "UKOIL",
+  "BTC", "ETH", "BNB", "SOL", "XRP",
+];
+
+const ALIASES: Array<[RegExp, string]> = [
+  [/\bGOLD\b/i,        "XAUUSD"],
+  [/\bSILVER\b/i,      "XAGUSD"],
+  [/\bBITCOIN\b/i,     "BTCUSDT"],
+  [/\bETHEREUM\b/i,    "ETHUSDT"],
+  [/\bNASDAQ\b/i,      "NAS100"],
+  [/\bDOW\s*JONES\b/i, "US30"],
+  [/\bS&P\b/i,         "US500"],
+  [/\bCRUDE\s*OIL\b/i, "USOIL"],
+];
+
+function detectSymbolFromJson(a: ChartAnalysis): string | null {
+  const parts: string[] = [
+    a.telegram_block, a.decision_zone, a.long_scenario, a.short_scenario,
+    a.sniper_entry, a.no_trade_condition, a.reasoning ?? "",
+    a.reason_if_no_trade ?? "",
+    ...Object.values(a.smc_notes ?? {}).filter((v): v is string => !!v),
+  ];
+  const fullText = parts.join(" ");
+  for (const [pattern, canonical] of ALIASES) {
+    if (pattern.test(fullText)) return canonical;
+  }
+  const normalized = fullText.replace(/\//g, "").toUpperCase();
+  for (const sym of KNOWN_INSTRUMENTS) {
+    if (normalized.includes(sym)) return sym;
+  }
+  return null;
+}
+
 function extractNumeric(s: string | undefined | null): number | null {
   if (!s || s === "N/A") return null;
   const m = s.match(/\d[\d,]*\.?\d*/);
@@ -25,15 +66,12 @@ export async function GET() {
   if (userError || !user)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // Only fetch analyses from the last 30 days that have a symbol tagged
-  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  // Fetch all analyses — symbol is inside output_json, not a separate column
   const { data, error } = await supabase
     .from("analysis_runs")
-    .select("id, symbol, output_json")
+    .select("id, output_json")
     .eq("user_id", user.id)
-    .not("symbol", "is", null)
-    .gte("created_at", since)
-    .limit(100);
+    .limit(200);
 
   if (error) {
     console.error("[alert-levels] query error:", error.message);
@@ -42,20 +80,20 @@ export async function GET() {
 
   const result: AlertLevel[] = [];
   for (const row of data ?? []) {
-    const analysis = row.output_json as ChartAnalysis;
-    const levels: number[] = [];
+    const json = row.output_json as AnalysisJson;
+    const sym = json?._symbol ?? detectSymbolFromJson(json);
+    if (!sym) continue;
 
-    for (const field of [analysis.sl, analysis.tp1, analysis.tp2, analysis.tp3]) {
+    const levels: number[] = [];
+    for (const field of [json.sl, json.tp1, json.tp2, json.tp3]) {
       const n = extractNumeric(field);
       if (n != null) levels.push(n);
     }
-
-    // Also try to extract a price from sniper_entry
-    const entryLevel = extractNumeric(analysis.sniper_entry);
+    const entryLevel = extractNumeric(json.sniper_entry);
     if (entryLevel != null) levels.push(entryLevel);
 
     if (levels.length > 0) {
-      result.push({ symbol: row.symbol, analysisId: row.id, levels: [...new Set(levels)] });
+      result.push({ symbol: sym, analysisId: row.id, levels: [...new Set(levels)] });
     }
   }
 
