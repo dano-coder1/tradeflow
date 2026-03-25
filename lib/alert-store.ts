@@ -71,25 +71,68 @@ export function extractNumericLevel(s: string | undefined | null): number | null
   return best;
 }
 
-/** Try multiple analysis fields in priority order to find a valid entry price. */
+/** Extract all numbers >= 100 from a string */
+function allNumbers(s: string | undefined | null): number[] {
+  if (!s || s === "N/A") return [];
+  const matches = s.match(/\d[\d,]*\.?\d*/g);
+  if (!matches) return [];
+  return matches
+    .map((m) => parseFloat(m.replace(/,/g, "")))
+    .filter((n) => isFinite(n) && n >= 100);
+}
+
+/** Try to find the actual entry price from structured analysis fields.
+ *  Priority: decision_zone numbers → sniper_entry numbers.
+ *  Excludes SL value. Picks the candidate between SL and TP1. */
 export function extractEntryPrice(result: {
+  bias?: string;
   sniper_entry?: string;
   decision_zone?: string;
   sl?: string;
   tp1?: string;
 }): number | null {
-  // 1. sniper_entry — the primary entry field
-  const fromEntry = extractNumericLevel(result.sniper_entry);
-  if (fromEntry) return fromEntry;
+  const slValue = extractNumericLevel(result.sl);
+  const tp1Value = extractNumericLevel(result.tp1);
 
-  // 2. decision_zone — often contains "3020-3030" range, take the first valid price
-  const fromZone = extractNumericLevel(result.decision_zone);
-  if (fromZone) return fromZone;
+  // Collect candidates from decision_zone first (most reliable), then sniper_entry
+  const candidates = [
+    ...allNumbers(result.decision_zone),
+    ...allNumbers(result.sniper_entry),
+  ];
 
-  // 3. Fallback: derive from SL/TP midpoint if both exist
-  const sl = extractNumericLevel(result.sl);
-  const tp = extractNumericLevel(result.tp1);
-  if (sl && tp) return Math.round(((sl + tp) / 2) * 100) / 100;
+  // Remove duplicates and exclude SL
+  const unique = [...new Set(candidates)].filter((n) => {
+    if (slValue && Math.abs(n - slValue) < 0.01) return false;
+    return true;
+  });
 
-  return null;
+  console.log("[extractEntryPrice] candidates:", unique, "SL:", slValue, "TP1:", tp1Value, "bias:", result.bias);
+
+  if (unique.length === 0) return null;
+  if (unique.length === 1) return unique[0];
+
+  // If we have SL and TP1, pick the candidate that falls between them
+  if (slValue && tp1Value) {
+    const lo = Math.min(slValue, tp1Value);
+    const hi = Math.max(slValue, tp1Value);
+    const between = unique.filter((n) => n > lo && n < hi);
+    if (between.length > 0) {
+      // Pick the one closest to the midpoint
+      const mid = (lo + hi) / 2;
+      between.sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid));
+      return between[0];
+    }
+  }
+
+  // Fallback: for bullish entry < TP1, for bearish entry > TP1
+  if (tp1Value) {
+    const isBullish = result.bias === "bullish";
+    const valid = unique.filter((n) =>
+      isBullish ? n < tp1Value : n > tp1Value
+    );
+    if (valid.length > 0) return valid[0];
+  }
+
+  // Last resort: smallest candidate that isn't SL (likely the zone low)
+  return unique[0];
 }

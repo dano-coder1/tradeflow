@@ -536,7 +536,17 @@ export function ChartAnalyzer() {
       return;
     }
     setAlertSymbolError(false);
+    console.log("[setAlerts] full result:", {
+      bias: result.bias,
+      sniper_entry: result.sniper_entry,
+      decision_zone: result.decision_zone,
+      sl: result.sl,
+      tp1: result.tp1,
+      tp2: result.tp2,
+      tp3: result.tp3,
+    });
     const entryLevel = extractEntryPrice(result);
+    console.log("[setAlerts] extracted entry price:", entryLevel);
     if (entryLevel == null) return;
     const direction = result.bias === "bullish" ? "BUY" as const
       : result.bias === "bearish" ? "SELL" as const
