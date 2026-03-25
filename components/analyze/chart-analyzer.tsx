@@ -209,15 +209,31 @@ function ExecutionPanel({ result }: { result: ChartAnalysis }) {
   return (
     <div className="space-y-3 lg:sticky lg:top-20">
 
-      {/* Verdict */}
+      {/* Verdict — BUY / SELL / NO TRADE */}
       <div className={cn("rounded-xl border px-4 py-4 space-y-3", cfg.border, cfg.bg)}>
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
-          Verdict
-        </p>
-        <p className={cn("text-xl font-bold tracking-wider", cfg.text)}>
-          {cfg.label}
-        </p>
-        <p className="text-xs leading-relaxed text-muted-foreground/70">{cfg.desc}</p>
+        {/* Primary action label */}
+        {verdict === "EXECUTE" && result.bias === "bullish" && (
+          <p className="text-center text-[32px] font-black tracking-wider text-emerald-400" style={{ textShadow: "0 0 24px rgba(34,197,94,0.4)" }}>
+            BUY
+          </p>
+        )}
+        {verdict === "EXECUTE" && result.bias === "bearish" && (
+          <p className="text-center text-[32px] font-black tracking-wider text-red-400" style={{ textShadow: "0 0 24px rgba(239,68,68,0.4)" }}>
+            SELL
+          </p>
+        )}
+        {verdict === "EXECUTE" && result.bias === "neutral" && (
+          <p className="text-center text-[32px] font-black tracking-wider text-amber-400" style={{ textShadow: "0 0 24px rgba(245,158,11,0.3)" }}>
+            WAIT
+          </p>
+        )}
+        {(verdict === "WAIT" || verdict === "NO_TRADE") && (
+          <p className="text-center text-[32px] font-black tracking-wider text-amber-400" style={{ textShadow: "0 0 24px rgba(245,158,11,0.3)" }}>
+            NO TRADE
+          </p>
+        )}
+
+        <p className="text-center text-xs leading-relaxed text-muted-foreground/70">{cfg.desc}</p>
 
         <div className="pt-1">
           <div className="mb-1 flex items-center gap-1.5">
@@ -520,31 +536,21 @@ export function ChartAnalyzer() {
       return;
     }
     setAlertSymbolError(false);
-    const levels: { label: string; field: string | undefined }[] = [
-      { label: "Entry", field: result.sniper_entry },
-      { label: "SL", field: result.sl },
-      { label: "TP1", field: result.tp1 },
-      { label: "TP2", field: result.tp2 },
-      { label: "TP3", field: result.tp3 },
-    ];
-    const alerts: StoredAlert[] = [];
-    const desc: string[] = [];
-    for (const { label, field } of levels) {
-      const n = extractNumericLevel(field);
-      if (n == null) continue;
-      alerts.push({
-        id: `${activeAnalysisId}_${label}`,
-        symbol: sym,
-        level: n,
-        label,
-        analysisId: activeAnalysisId ?? "",
-        createdAt: new Date().toISOString(),
-      });
-      desc.push(`${label} ${n}`);
-    }
-    if (alerts.length === 0) return;
-    addAlerts(alerts);
-    setAlertsSet(`Alerts set for ${sym}: ${desc.join(", ")}`);
+    const entryLevel = extractNumericLevel(result.sniper_entry);
+    if (entryLevel == null) return;
+    const direction = result.bias === "bullish" ? "BUY" as const
+      : result.bias === "bearish" ? "SELL" as const
+      : "NEUTRAL" as const;
+    addAlerts([{
+      id: `${activeAnalysisId}_Entry`,
+      symbol: sym,
+      level: entryLevel,
+      label: "Entry",
+      direction,
+      analysisId: activeAnalysisId ?? "",
+      createdAt: new Date().toISOString(),
+    }]);
+    setAlertsSet(`${sym} — ${direction} alert set at entry ${entryLevel}`);
   }
 
   const [continuingFrom, setContinuingFrom] = useState<{

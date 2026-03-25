@@ -106,7 +106,17 @@ export function ActiveAlertsPanel() {
               <div key={symbol} className="px-4 py-3 space-y-2">
                 {/* Symbol header + live price */}
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-sm font-bold">{symbol}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-bold">{symbol}</span>
+                    {symbolAlerts[0]?.direction && symbolAlerts[0].direction !== "NEUTRAL" && (
+                      <span className={cn(
+                        "rounded px-1.5 py-0.5 text-[10px] font-bold",
+                        symbolAlerts[0].direction === "BUY" ? "bg-emerald-400/15 text-emerald-400" : "bg-red-400/15 text-red-400"
+                      )}>
+                        {symbolAlerts[0].direction}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1.5">
                     {priceAvailable ? (
                       <>

@@ -5,6 +5,7 @@ export interface StoredAlert {
   symbol: string;
   level: number;
   label: string;
+  direction: "BUY" | "SELL" | "NEUTRAL";
   analysisId: string;
   createdAt: string;
 }

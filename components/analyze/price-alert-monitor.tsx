@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { getAlerts } from "@/lib/alert-store";
+import { getAlerts, type StoredAlert } from "@/lib/alert-store";
 
 const POLL_INTERVAL_MS = 30_000;
 const FIRED_KEY = "tf_price_alerts_fired";
@@ -44,13 +44,14 @@ async function fetchPrice(symbol: string): Promise<number | null> {
   }
 }
 
-function fireNotification(symbol: string, price: number, level: number) {
+function fireNotification(symbol: string, price: number, level: number, direction: string) {
   if (typeof window === "undefined" || !("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
-  console.log("[monitor] FIRING notification:", symbol, "price", price, "near level", level);
+  const action = direction === "BUY" ? "BUY" : direction === "SELL" ? "SELL" : "TRADE";
+  console.log("[monitor] FIRING notification:", symbol, action, "price", price, "near level", level);
   try {
-    new Notification(`${symbol} approaching your analysis level: ${level.toFixed(2)}`, {
-      body: `Live price ${price.toFixed(2)} is within 0.5% of a saved key level.`,
+    new Notification(`${symbol} — ${action} opportunity near entry ${level.toFixed(2)}`, {
+      body: `Live price ${price.toFixed(2)} is approaching your entry level.`,
       icon: "/favicon.ico",
       tag: `${symbol}_${level}`,
     });
@@ -76,14 +77,16 @@ export function PriceAlertMonitor() {
       console.log("[monitor] active alerts:", alerts.length);
       if (alerts.length === 0) return;
 
-      const bySymbol = new Map<string, number[]>();
+      // Group by symbol, keeping alert details for direction
+      const bySymbol = new Map<string, StoredAlert[]>();
       for (const al of alerts) {
-        const existing = bySymbol.get(al.symbol) ?? [];
-        bySymbol.set(al.symbol, [...new Set([...existing, al.level])]);
+        const arr = bySymbol.get(al.symbol) ?? [];
+        arr.push(al);
+        bySymbol.set(al.symbol, arr);
       }
 
-      for (const [symbol, levels] of bySymbol) {
-        console.log("[monitor] polling", symbol, "for levels:", levels);
+      for (const [symbol, symbolAlerts] of bySymbol) {
+        console.log("[monitor] polling", symbol, "for levels:", symbolAlerts.map((a) => a.level));
 
         const id = setInterval(async () => {
           if (!active) return;
@@ -92,13 +95,13 @@ export function PriceAlertMonitor() {
           if (price == null) return;
 
           const fired = getFired();
-          for (const level of levels) {
-            if (!isNearLevel(price, level)) continue;
-            const key = `${symbol}_${level}`;
+          for (const alert of symbolAlerts) {
+            if (!isNearLevel(price, alert.level)) continue;
+            const key = `${symbol}_${alert.level}`;
             if (fired.has(key)) continue;
-            console.log("[monitor] NEAR LEVEL:", symbol, "price", price, "level", level);
+            console.log("[monitor] NEAR LEVEL:", symbol, "price", price, "level", alert.level);
             markFired(key);
-            fireNotification(symbol, price, level);
+            fireNotification(symbol, price, alert.level, alert.direction ?? "NEUTRAL");
           }
         }, POLL_INTERVAL_MS);
 
