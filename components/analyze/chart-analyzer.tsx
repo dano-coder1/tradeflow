@@ -435,29 +435,57 @@ function SmcAutopsyPanel({ result }: { result: ChartAnalysis }) {
 
 // ─── Symbol detection from AI output ────────────────────────────────────────
 
+// Ordered longest-first so "XAUUSD" matches before "XAU", "BTCUSDT" before "BTC", etc.
 const KNOWN_INSTRUMENTS = [
-  "XAUUSD", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF",
-  "USDCAD", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY", "CHFJPY", "AUDJPY",
-  "BTCUSD", "BTCUSDT", "ETHUSD", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
-  "NAS100", "US30", "US500", "SPX500", "DXY", "USOIL", "UKOIL",
-  "BTC", "ETH", "BNB", "SOL", "XRP", "GOLD", "SILVER",
+  "XAUUSD", "XAGUSD",
+  "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
+  "EURGBP", "EURJPY", "GBPJPY", "CHFJPY", "AUDJPY",
+  "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+  "BTCUSD", "ETHUSD",
+  "NAS100", "US500", "SPX500", "US30", "DXY", "USOIL", "UKOIL",
+  "BTC", "ETH", "BNB", "SOL", "XRP",
+];
+
+// Word aliases for common names the AI uses in free text
+const ALIASES: Array<[RegExp, string]> = [
+  [/\bGOLD\b/i,         "XAUUSD"],
+  [/\bSILVER\b/i,       "XAGUSD"],
+  [/\bBITCOIN\b/i,      "BTCUSDT"],
+  [/\bETHEREUM\b/i,     "ETHUSDT"],
+  [/\bNASDAQ\b/i,       "NAS100"],
+  [/\bDOW\s*JONES\b/i,  "US30"],
+  [/\bS&P\b/i,          "US500"],
+  [/\bCRUDE\s*OIL\b/i,  "USOIL"],
 ];
 
 function detectSymbol(analysis: ChartAnalysis): string | null {
-  const text = [
+  // Collect every text field — the AI mentions the instrument in free text
+  const parts: string[] = [
     analysis.telegram_block,
     analysis.decision_zone,
     analysis.long_scenario,
     analysis.short_scenario,
-    analysis.reasoning ?? "",
     analysis.sniper_entry,
-  ]
-    .join(" ")
-    .toUpperCase();
+    analysis.no_trade_condition,
+    analysis.reasoning ?? "",
+    analysis.reason_if_no_trade ?? "",
+    ...Object.values(analysis.smc_notes).filter((v): v is string => !!v),
+  ];
+  const fullText = parts.join(" ");
 
-  for (const sym of KNOWN_INSTRUMENTS) {
-    if (text.includes(sym)) return sym;
+  // 1. Word-alias pass on original text (catches "Gold", "Bitcoin", etc.)
+  for (const [pattern, canonical] of ALIASES) {
+    if (pattern.test(fullText)) return canonical;
   }
+
+  // 2. Normalise: remove slashes so "XAU/USD" → "XAUUSD", "EUR/USD" → "EURUSD"
+  const normalized = fullText.replace(/\//g, "").toUpperCase();
+
+  // 3. Known-instrument pass on normalised text
+  for (const sym of KNOWN_INSTRUMENTS) {
+    if (normalized.includes(sym)) return sym;
+  }
+
   return null;
 }
 
@@ -476,6 +504,7 @@ export function ChartAnalyzer() {
   const [changes, setChanges] = useState<string[]>([]);
   const [historyKey, setHistoryKey] = useState(0);
   const [symbol, setSymbol] = useState("");
+  const [symbolSaved, setSymbolSaved] = useState<string | null>(null);
 
   async function handleFiles(files: FileList) {
     const remaining = 6 - images.length;
@@ -510,6 +539,7 @@ export function ChartAnalyzer() {
     setSaved(false);
     setSaveError(null);
     setChanges([]);
+    setSymbolSaved(null);
   }
 
   async function handleAnalyze() {
@@ -523,6 +553,7 @@ export function ChartAnalyzer() {
     setSaved(false);
     setSaveError(null);
     setChanges([]);
+    setSymbolSaved(null);
 
     if (!isContinuation) {
       setResult(null);
@@ -560,13 +591,35 @@ export function ChartAnalyzer() {
         // Auto-detect symbol from AI output if user hasn't typed one
         const detectedSymbol = detectSymbol(analysis);
         const symbolToTag = symbol.trim().toUpperCase() || detectedSymbol;
+        console.log("[chart-analyzer] symbol tagging:", {
+          manualSymbol: symbol.trim().toUpperCase() || null,
+          detectedSymbol,
+          symbolToTag,
+          analysisId: analysis.analysisId,
+        });
         if (symbolToTag) {
           setSymbol(symbolToTag);
-          fetch("/api/ai/analyze-chart/tag-symbol", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ analysisId: analysis.analysisId, symbol: symbolToTag }),
-          }).catch(() => {/* best-effort */});
+          try {
+            const tagRes = await fetch("/api/ai/analyze-chart/tag-symbol", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ analysisId: analysis.analysisId, symbol: symbolToTag }),
+            });
+            const tagJson = await tagRes.json().catch(() => ({}));
+            if (!tagRes.ok) {
+              console.error("[chart-analyzer] tag-symbol failed:", tagRes.status, tagJson);
+              setSaveError(`Symbol tag failed: ${tagJson.error ?? tagRes.status}`);
+            } else {
+              console.log("[chart-analyzer] tag-symbol success:", tagJson);
+              setSymbolSaved(symbolToTag);
+              // Notify the instrument folder view to re-fetch
+              window.dispatchEvent(new CustomEvent("tf:analyses-updated"));
+            }
+          } catch (tagEx) {
+            console.error("[chart-analyzer] tag-symbol network error:", tagEx);
+          }
+        } else {
+          console.log("[chart-analyzer] no symbol to tag — enter one manually or AI output had none");
         }
       } else {
         setSaveError("Analysis complete but could not be saved to history.");
@@ -664,17 +717,22 @@ export function ChartAnalyzer() {
           {error && <p className="text-xs text-destructive">{error}</p>}
 
           <div className="flex items-center gap-2">
-            <label className="shrink-0 text-xs text-muted-foreground">Instrument</label>
+            <label className="shrink-0 text-xs font-medium text-muted-foreground">Instrument</label>
             <input
               type="text"
               value={symbol}
               onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-              placeholder="e.g. XAUUSD"
-              className="h-8 w-36 rounded-md border border-border bg-transparent px-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50"
+              placeholder="e.g. XAUUSD (auto-detected)"
+              className="h-8 w-44 rounded-md border border-border bg-transparent px-2.5 font-mono text-sm font-semibold text-foreground placeholder:font-normal placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50"
             />
-            <span className="text-[11px] text-muted-foreground/50">
-              Auto-detected if left empty
-            </span>
+            {symbol && (
+              <button
+                onClick={() => setSymbol("")}
+                className="text-[11px] text-muted-foreground/50 hover:text-foreground"
+              >
+                ✕ clear
+              </button>
+            )}
           </div>
 
           <Button
@@ -707,6 +765,18 @@ export function ChartAnalyzer() {
                   <ExternalLink className="h-3 w-3" />
                   View detail
                 </Link>
+              </div>
+            )}
+            {symbolSaved && (
+              <div className="flex items-center gap-1.5 text-primary">
+                <span className="font-mono font-bold">{symbolSaved}</span>
+                <span className="text-muted-foreground">saved to instrument folder</span>
+              </div>
+            )}
+            {saved && !symbolSaved && !saveError && (
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                No instrument detected — type a symbol above and re-analyze, or enter it in the field
               </div>
             )}
             {saveError && (

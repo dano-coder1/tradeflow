@@ -85,15 +85,34 @@ export function AnalysesByInstrument() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  async function fetchGroups() {
+    setError(null);
+    try {
+      const r = await fetch("/api/analyses/by-instrument", { cache: "no-store" });
+      const data = await r.json();
+      if (!r.ok) {
+        setError(data.error ?? "Failed to load");
+        return;
+      }
+      if (Array.isArray(data)) setGroups(data);
+      else setError(data.error ?? "Failed to load");
+    } catch {
+      setError("Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    fetch("/api/analyses/by-instrument")
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) setGroups(data);
-        else setError(data.error ?? "Failed to load");
-      })
-      .catch(() => setError("Failed to load"))
-      .finally(() => setLoading(false));
+    fetchGroups();
+
+    // Re-fetch whenever chart-analyzer successfully tags a symbol
+    function handleUpdate() {
+      setLoading(true);
+      fetchGroups();
+    }
+    window.addEventListener("tf:analyses-updated", handleUpdate);
+    return () => window.removeEventListener("tf:analyses-updated", handleUpdate);
   }, []);
 
   if (loading) {
