@@ -51,10 +51,15 @@ function detectSymbolFromJson(a: ChartAnalysis): string | null {
 
 function extractNumeric(s: string | undefined | null): number | null {
   if (!s || s === "N/A") return null;
-  const m = s.match(/\d[\d,]*\.?\d*/);
-  if (!m) return null;
-  const n = parseFloat(m[0].replace(/,/g, ""));
-  return isFinite(n) && n > 0 ? n : null;
+  const matches = s.match(/\d[\d,]*\.?\d*/g);
+  if (!matches) return null;
+  let best: number | null = null;
+  for (const m of matches) {
+    const n = parseFloat(m.replace(/,/g, ""));
+    if (!isFinite(n) || n < 100) continue;
+    if (best === null || n > best) best = n;
+  }
+  return best;
 }
 
 export async function GET() {

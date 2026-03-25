@@ -56,10 +56,40 @@ export function clearAlerts() {
   window.dispatchEvent(new CustomEvent("tf:alerts-changed"));
 }
 
+/** Extract a plausible price level from a string. Finds ALL numbers and returns
+ *  the largest one >= 100 (real prices are never < 100 for instruments we track). */
 export function extractNumericLevel(s: string | undefined | null): number | null {
   if (!s || s === "N/A") return null;
-  const m = s.match(/\d[\d,]*\.?\d*/);
-  if (!m) return null;
-  const n = parseFloat(m[0].replace(/,/g, ""));
-  return isFinite(n) && n > 0 ? n : null;
+  const matches = s.match(/\d[\d,]*\.?\d*/g);
+  if (!matches) return null;
+  let best: number | null = null;
+  for (const m of matches) {
+    const n = parseFloat(m.replace(/,/g, ""));
+    if (!isFinite(n) || n < 100) continue;
+    if (best === null || n > best) best = n;
+  }
+  return best;
+}
+
+/** Try multiple analysis fields in priority order to find a valid entry price. */
+export function extractEntryPrice(result: {
+  sniper_entry?: string;
+  decision_zone?: string;
+  sl?: string;
+  tp1?: string;
+}): number | null {
+  // 1. sniper_entry — the primary entry field
+  const fromEntry = extractNumericLevel(result.sniper_entry);
+  if (fromEntry) return fromEntry;
+
+  // 2. decision_zone — often contains "3020-3030" range, take the first valid price
+  const fromZone = extractNumericLevel(result.decision_zone);
+  if (fromZone) return fromZone;
+
+  // 3. Fallback: derive from SL/TP midpoint if both exist
+  const sl = extractNumericLevel(result.sl);
+  const tp = extractNumericLevel(result.tp1);
+  if (sl && tp) return Math.round(((sl + tp) / 2) * 100) / 100;
+
+  return null;
 }

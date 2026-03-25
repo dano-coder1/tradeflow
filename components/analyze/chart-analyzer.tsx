@@ -30,7 +30,7 @@ import {
   Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { addAlerts, extractNumericLevel, type StoredAlert } from "@/lib/alert-store";
+import { addAlerts, extractEntryPrice, type StoredAlert } from "@/lib/alert-store";
 
 // ─── History panel (unchanged) ───────────────────────────────────────────────
 
@@ -536,7 +536,7 @@ export function ChartAnalyzer() {
       return;
     }
     setAlertSymbolError(false);
-    const entryLevel = extractNumericLevel(result.sniper_entry);
+    const entryLevel = extractEntryPrice(result);
     if (entryLevel == null) return;
     const direction = result.bias === "bullish" ? "BUY" as const
       : result.bias === "bearish" ? "SELL" as const
