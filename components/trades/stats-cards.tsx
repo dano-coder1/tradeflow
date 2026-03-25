@@ -50,16 +50,16 @@ export function StatsCards({ trades }: { trades: Trade[] }) {
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 w-full">
       {stats.map((s) => (
-        <Card key={s.label}>
+        <Card key={s.label} className="w-full">
           <CardContent className="flex items-start justify-between p-5">
-            <div>
-              <p className="text-xs text-muted-foreground">{s.label}</p>
-              <p className={`mt-1 text-2xl font-bold ${s.color}`}>{s.value}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{s.sub}</p>
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{s.label}</p>
+              <p className={`mt-1.5 text-3xl font-extrabold tracking-tight ${s.color}`}>{s.value}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{s.sub}</p>
             </div>
-            <s.icon className={`h-5 w-5 ${s.color} opacity-60`} />
+            <s.icon className={`h-5 w-5 shrink-0 ${s.color} opacity-50`} />
           </CardContent>
         </Card>
       ))}

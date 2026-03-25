@@ -433,6 +433,34 @@ function SmcAutopsyPanel({ result }: { result: ChartAnalysis }) {
   );
 }
 
+// ─── Symbol detection from AI output ────────────────────────────────────────
+
+const KNOWN_INSTRUMENTS = [
+  "XAUUSD", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF",
+  "USDCAD", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY", "CHFJPY", "AUDJPY",
+  "BTCUSD", "BTCUSDT", "ETHUSD", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+  "NAS100", "US30", "US500", "SPX500", "DXY", "USOIL", "UKOIL",
+  "BTC", "ETH", "BNB", "SOL", "XRP", "GOLD", "SILVER",
+];
+
+function detectSymbol(analysis: ChartAnalysis): string | null {
+  const text = [
+    analysis.telegram_block,
+    analysis.decision_zone,
+    analysis.long_scenario,
+    analysis.short_scenario,
+    analysis.reasoning ?? "",
+    analysis.sniper_entry,
+  ]
+    .join(" ")
+    .toUpperCase();
+
+  for (const sym of KNOWN_INSTRUMENTS) {
+    if (text.includes(sym)) return sym;
+  }
+  return null;
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ChartAnalyzer() {
@@ -447,6 +475,7 @@ export function ChartAnalyzer() {
   const [saved, setSaved] = useState(false);
   const [changes, setChanges] = useState<string[]>([]);
   const [historyKey, setHistoryKey] = useState(0);
+  const [symbol, setSymbol] = useState("");
 
   async function handleFiles(files: FileList) {
     const remaining = 6 - images.length;
@@ -527,6 +556,18 @@ export function ChartAnalyzer() {
         setActiveAnalysisId(analysis.analysisId);
         setSaved(true);
         setHistoryKey((k) => k + 1);
+
+        // Auto-detect symbol from AI output if user hasn't typed one
+        const detectedSymbol = detectSymbol(analysis);
+        const symbolToTag = symbol.trim().toUpperCase() || detectedSymbol;
+        if (symbolToTag) {
+          setSymbol(symbolToTag);
+          fetch("/api/ai/analyze-chart/tag-symbol", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ analysisId: analysis.analysisId, symbol: symbolToTag }),
+          }).catch(() => {/* best-effort */});
+        }
       } else {
         setSaveError("Analysis complete but could not be saved to history.");
       }
@@ -555,6 +596,8 @@ export function ChartAnalyzer() {
           setActiveAnalysisId(id);
           setSaved(false);
           setSaveError(null);
+          const detected = detectSymbol(analysis);
+          if (detected) setSymbol(detected);
         }}
       />
 
@@ -619,6 +662,20 @@ export function ChartAnalyzer() {
           </div>
 
           {error && <p className="text-xs text-destructive">{error}</p>}
+
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-xs text-muted-foreground">Instrument</label>
+            <input
+              type="text"
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+              placeholder="e.g. XAUUSD"
+              className="h-8 w-36 rounded-md border border-border bg-transparent px-2.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50"
+            />
+            <span className="text-[11px] text-muted-foreground/50">
+              Auto-detected if left empty
+            </span>
+          </div>
 
           <Button
             onClick={handleAnalyze}

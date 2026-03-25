@@ -1,4 +1,5 @@
 import { ChartAnalyzer } from "@/components/analyze/chart-analyzer";
+import { AnalysesByInstrument } from "@/components/analyze/analyses-by-instrument";
 
 export default function AnalyzePage() {
   return (
@@ -10,6 +11,10 @@ export default function AnalyzePage() {
         </p>
       </div>
       <ChartAnalyzer />
+      <div>
+        <h2 className="mb-3 text-base font-semibold">Analyses by Instrument</h2>
+        <AnalysesByInstrument />
+      </div>
     </div>
   );
 }
