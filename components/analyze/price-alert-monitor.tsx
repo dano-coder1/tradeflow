@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import type { AlertLevel } from "@/app/api/analyses/alert-levels/route";
+import { getAlerts } from "@/lib/alert-store";
 
-const FIRED_KEY = "tf_price_alerts_fired";
 const POLL_INTERVAL_MS = 30_000;
+const FIRED_KEY = "tf_price_alerts_fired";
 
 function getFired(): Set<string> {
   try {
@@ -52,7 +52,6 @@ function fireNotification(symbol: string, price: number, level: number) {
 
 export function PriceAlertMonitor() {
   useEffect(() => {
-    // Request notification permission on first use
     if (typeof window !== "undefined" && "Notification" in window) {
       if (Notification.permission === "default") {
         Notification.requestPermission();
@@ -60,55 +59,59 @@ export function PriceAlertMonitor() {
     }
 
     let active = true;
-    const intervals: ReturnType<typeof setInterval>[] = [];
+    let intervals: ReturnType<typeof setInterval>[] = [];
 
-    async function init() {
-      try {
-        const res = await fetch("/api/analyses/alert-levels", { cache: "no-store" });
-        if (!res.ok || !active) return;
-        const alertLevels: AlertLevel[] = await res.json();
-        if (!Array.isArray(alertLevels) || alertLevels.length === 0) return;
+    function startPolling() {
+      // Clear previous intervals
+      intervals.forEach(clearInterval);
+      intervals = [];
 
-        // Deduplicate: symbol → unique levels across all analyses
-        const bySymbol = new Map<string, number[]>();
-        for (const al of alertLevels) {
-          const existing = bySymbol.get(al.symbol) ?? [];
-          const merged = [...new Set([...existing, ...al.levels])];
-          bySymbol.set(al.symbol, merged);
-        }
+      const alerts = getAlerts();
+      if (alerts.length === 0) return;
 
-        for (const [symbol, levels] of bySymbol) {
-          const id = setInterval(async () => {
-            if (!active) return;
-            if (typeof window === "undefined") return;
-            if (!("Notification" in window)) return;
-            if (Notification.permission !== "granted") return;
+      // Group by symbol
+      const bySymbol = new Map<string, number[]>();
+      for (const al of alerts) {
+        const existing = bySymbol.get(al.symbol) ?? [];
+        bySymbol.set(al.symbol, [...new Set([...existing, al.level])]);
+      }
 
-            const price = await fetchPrice(symbol);
-            if (price == null) return;
+      for (const [symbol, levels] of bySymbol) {
+        const id = setInterval(async () => {
+          if (!active) return;
+          if (typeof window === "undefined") return;
+          if (!("Notification" in window)) return;
+          if (Notification.permission !== "granted") return;
 
-            const fired = getFired();
-            for (const level of levels) {
-              if (!isNearLevel(price, level)) continue;
-              const key = `${symbol}_${level}`;
-              if (fired.has(key)) continue;
-              markFired(key);
-              fireNotification(symbol, price, level);
-            }
-          }, POLL_INTERVAL_MS);
+          const price = await fetchPrice(symbol);
+          if (price == null) return;
 
-          intervals.push(id);
-        }
-      } catch {
-        // Best-effort — never crash the layout
+          const fired = getFired();
+          for (const level of levels) {
+            if (!isNearLevel(price, level)) continue;
+            const key = `${symbol}_${level}`;
+            if (fired.has(key)) continue;
+            markFired(key);
+            fireNotification(symbol, price, level);
+          }
+        }, POLL_INTERVAL_MS);
+
+        intervals.push(id);
       }
     }
 
-    init();
+    startPolling();
+
+    // Re-init when alerts change (add/remove)
+    function handleAlertsChanged() {
+      startPolling();
+    }
+    window.addEventListener("tf:alerts-changed", handleAlertsChanged);
 
     return () => {
       active = false;
       intervals.forEach(clearInterval);
+      window.removeEventListener("tf:alerts-changed", handleAlertsChanged);
     };
   }, []);
 

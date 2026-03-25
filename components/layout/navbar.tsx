@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
+import { getAlerts, removeAlert, type StoredAlert } from "@/lib/alert-store";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, LayoutDashboard, ScanLine, Brain, Plus, LogOut } from "lucide-react";
+import { TrendingUp, LayoutDashboard, ScanLine, Brain, Plus, LogOut, Bell, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
@@ -12,6 +14,113 @@ const NAV_LINKS = [
   { href: "/dashboard/analyze",  label: "Analyzer",  icon: ScanLine        },
   { href: "/dashboard/strategy", label: "Strategy",  icon: Brain           },
 ];
+
+function AlertsIndicator() {
+  const [alerts, setAlerts] = useState<StoredAlert[]>([]);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  function refresh() {
+    setAlerts(getAlerts());
+  }
+
+  useEffect(() => {
+    refresh();
+    window.addEventListener("tf:alerts-changed", refresh);
+    return () => window.removeEventListener("tf:alerts-changed", refresh);
+  }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  function handleRemove(id: string) {
+    removeAlert(id);
+    refresh();
+  }
+
+  // Group alerts by symbol for display
+  const bySymbol = new Map<string, StoredAlert[]>();
+  for (const a of alerts) {
+    const arr = bySymbol.get(a.symbol) ?? [];
+    arr.push(a);
+    bySymbol.set(a.symbol, arr);
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-200",
+          alerts.length > 0
+            ? "text-[#0EA5E9] hover:bg-[#0EA5E9]/10"
+            : "text-muted-foreground hover:bg-white/[0.05]"
+        )}
+        title={`${alerts.length} active alert${alerts.length !== 1 ? "s" : ""}`}
+      >
+        <Bell className="h-4 w-4" />
+        {alerts.length > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#0EA5E9] px-1 text-[10px] font-bold text-white">
+            {alerts.length}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="glass-strong absolute right-0 top-full mt-2 w-72 rounded-xl shadow-xl shadow-black/30 overflow-hidden z-50">
+          <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
+            <p className="text-xs font-semibold text-foreground">Active Alerts</p>
+            <span className="rounded-full bg-[#0EA5E9]/15 px-2 py-0.5 text-[10px] font-bold text-[#0EA5E9]">
+              {alerts.length}
+            </span>
+          </div>
+
+          {alerts.length === 0 ? (
+            <p className="px-4 py-6 text-center text-xs text-muted-foreground">
+              No active alerts. Set them from an analysis result.
+            </p>
+          ) : (
+            <div className="max-h-64 overflow-y-auto divide-y divide-white/[0.04]">
+              {Array.from(bySymbol.entries()).map(([symbol, symbolAlerts]) => (
+                <div key={symbol} className="px-4 py-2.5">
+                  <p className="mb-1.5 font-mono text-xs font-bold text-foreground">{symbol}</p>
+                  <div className="space-y-1">
+                    {symbolAlerts.map((a) => (
+                      <div key={a.id} className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span className={cn(
+                            "w-8 shrink-0 font-semibold",
+                            a.label === "SL" ? "text-red-400" : a.label.startsWith("TP") ? "text-emerald-400" : "text-foreground"
+                          )}>
+                            {a.label}
+                          </span>
+                          <span className="font-mono">{a.level.toFixed(2)}</span>
+                        </div>
+                        <button
+                          onClick={() => handleRemove(a.id)}
+                          className="rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Navbar() {
   const router = useRouter();
@@ -55,7 +164,8 @@ export function Navbar() {
             ))}
           </nav>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <AlertsIndicator />
           <Link
             href="/trades/new"
             className="btn-gradient inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold text-white"

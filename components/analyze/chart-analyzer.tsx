@@ -27,8 +27,10 @@ import {
   TrendingDown,
   Minus,
   GitBranch,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { addAlerts, extractNumericLevel, type StoredAlert } from "@/lib/alert-store";
 
 // ─── History panel (unchanged) ───────────────────────────────────────────────
 
@@ -506,6 +508,37 @@ export function ChartAnalyzer() {
   const [historyKey, setHistoryKey] = useState(0);
   const [symbol, setSymbol] = useState("");
   const [symbolSaved, setSymbolSaved] = useState<string | null>(null);
+  const [alertsSet, setAlertsSet] = useState<string | null>(null);
+
+  function handleSetAlerts() {
+    if (!result || !symbolSaved) return;
+    const levels: { label: string; field: string | undefined }[] = [
+      { label: "Entry", field: result.sniper_entry },
+      { label: "SL", field: result.sl },
+      { label: "TP1", field: result.tp1 },
+      { label: "TP2", field: result.tp2 },
+      { label: "TP3", field: result.tp3 },
+    ];
+    const alerts: StoredAlert[] = [];
+    const desc: string[] = [];
+    for (const { label, field } of levels) {
+      const n = extractNumericLevel(field);
+      if (n == null) continue;
+      alerts.push({
+        id: `${activeAnalysisId}_${label}`,
+        symbol: symbolSaved,
+        level: n,
+        label,
+        analysisId: activeAnalysisId ?? "",
+        createdAt: new Date().toISOString(),
+      });
+      desc.push(`${label} ${n}`);
+    }
+    if (alerts.length === 0) return;
+    addAlerts(alerts);
+    setAlertsSet(`Alerts set for ${symbolSaved}: ${desc.join(", ")}`);
+  }
+
   const [continuingFrom, setContinuingFrom] = useState<{
     analysis: ChartAnalysis;
     symbol: string;
@@ -585,6 +618,7 @@ export function ChartAnalyzer() {
     setSaveError(null);
     setChanges([]);
     setSymbolSaved(null);
+    setAlertsSet(null);
 
     if (!isSameSession && !isFolderContinuation) {
       setResult(null);
@@ -849,6 +883,23 @@ export function ChartAnalyzer() {
               </div>
             )}
           </div>
+
+          {/* Set Price Alert button + confirmation */}
+          {saved && symbolSaved && !alertsSet && (
+            <button
+              onClick={handleSetAlerts}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#0EA5E9]/25 bg-[#0EA5E9]/5 px-3 py-2 text-xs font-medium text-[#0EA5E9] transition-colors hover:border-[#0EA5E9]/40 hover:bg-[#0EA5E9]/10"
+            >
+              <Bell className="h-3.5 w-3.5" />
+              Set Price Alerts
+            </button>
+          )}
+          {alertsSet && (
+            <div className="flex items-center gap-1.5 rounded-lg border border-[#0EA5E9]/20 bg-[#0EA5E9]/5 px-3 py-2 text-xs text-[#0EA5E9]">
+              <Bell className="h-3.5 w-3.5" />
+              {alertsSet}
+            </div>
+          )}
 
           {/* Continuation refinements */}
           {changes.length > 0 && (
