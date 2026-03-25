@@ -509,9 +509,12 @@ export function ChartAnalyzer() {
   const [symbol, setSymbol] = useState("");
   const [symbolSaved, setSymbolSaved] = useState<string | null>(null);
   const [alertsSet, setAlertsSet] = useState<string | null>(null);
+  const [alertSymbol, setAlertSymbol] = useState("");
 
   function handleSetAlerts() {
-    if (!result || !symbolSaved) return;
+    if (!result) return;
+    const sym = symbolSaved || alertSymbol.trim().toUpperCase();
+    if (!sym) return;
     const levels: { label: string; field: string | undefined }[] = [
       { label: "Entry", field: result.sniper_entry },
       { label: "SL", field: result.sl },
@@ -526,7 +529,7 @@ export function ChartAnalyzer() {
       if (n == null) continue;
       alerts.push({
         id: `${activeAnalysisId}_${label}`,
-        symbol: symbolSaved,
+        symbol: sym,
         level: n,
         label,
         analysisId: activeAnalysisId ?? "",
@@ -536,7 +539,7 @@ export function ChartAnalyzer() {
     }
     if (alerts.length === 0) return;
     addAlerts(alerts);
-    setAlertsSet(`Alerts set for ${symbolSaved}: ${desc.join(", ")}`);
+    setAlertsSet(`Alerts set for ${sym}: ${desc.join(", ")}`);
   }
 
   const [continuingFrom, setContinuingFrom] = useState<{
@@ -619,6 +622,7 @@ export function ChartAnalyzer() {
     setChanges([]);
     setSymbolSaved(null);
     setAlertsSet(null);
+    setAlertSymbol("");
 
     if (!isSameSession && !isFolderContinuation) {
       setResult(null);
@@ -900,14 +904,30 @@ export function ChartAnalyzer() {
           )}
 
           {/* ── Set Price Alerts ── */}
-          {saved && symbolSaved && !alertsSet && (
-            <button
-              onClick={handleSetAlerts}
-              className="flex w-full items-center justify-center gap-3 rounded-xl border border-[#0EA5E9]/20 bg-gradient-to-r from-[#0EA5E9]/10 via-[#0EA5E9]/5 to-[#8B5CF6]/10 px-6 py-4 text-sm font-semibold text-[#0EA5E9] transition-all duration-200 hover:border-[#0EA5E9]/40 hover:shadow-[0_0_24px_rgba(14,165,233,0.15)]"
-            >
-              <Bell className="h-5 w-5" />
-              Set Price Alerts for {symbolSaved}
-            </button>
+          {saved && !alertsSet && (
+            <div className="flex w-full flex-col sm:flex-row items-stretch sm:items-center gap-3 rounded-xl border border-[#0EA5E9]/20 bg-gradient-to-r from-[#0EA5E9]/10 via-[#0EA5E9]/5 to-[#8B5CF6]/10 px-5 py-4">
+              {!symbolSaved && (
+                <input
+                  type="text"
+                  value={alertSymbol}
+                  onChange={(e) => setAlertSymbol(e.target.value.toUpperCase())}
+                  placeholder="Symbol, e.g. XAUUSD"
+                  className="h-10 w-full sm:w-40 rounded-lg border border-[#0EA5E9]/20 bg-black/30 px-3 font-mono text-sm font-semibold text-foreground placeholder:font-normal placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]/40"
+                />
+              )}
+              <button
+                onClick={handleSetAlerts}
+                disabled={!symbolSaved && !alertSymbol.trim()}
+                className="flex flex-1 items-center justify-center gap-3 rounded-lg px-4 py-2.5 text-sm font-semibold text-[#0EA5E9] transition-all duration-200 hover:bg-[#0EA5E9]/10 disabled:opacity-40 disabled:pointer-events-none"
+              >
+                <Bell className="h-5 w-5" />
+                {symbolSaved
+                  ? `Set Price Alerts for ${symbolSaved}`
+                  : alertSymbol.trim()
+                    ? `Set Price Alerts for ${alertSymbol.trim()}`
+                    : "Enter symbol to set alerts"}
+              </button>
+            </div>
           )}
           {alertsSet && (
             <div className="flex w-full items-center justify-center gap-3 rounded-xl border border-[#0EA5E9]/20 bg-[#0EA5E9]/5 px-6 py-4 text-sm text-[#0EA5E9]">
