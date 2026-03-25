@@ -30,10 +30,16 @@ function isNearLevel(price: number, level: number): boolean {
 async function fetchPrice(symbol: string): Promise<number | null> {
   try {
     const res = await fetch(`/api/prices/${symbol}`, { cache: "no-store" });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn("[monitor] price fetch failed for", symbol, res.status);
+      return null;
+    }
     const json = await res.json();
-    return typeof json.price === "number" ? json.price : null;
-  } catch {
+    const price = typeof json.price === "number" ? json.price : null;
+    console.log("[monitor]", symbol, "=", price);
+    return price;
+  } catch (e) {
+    console.warn("[monitor] price fetch error for", symbol, e);
     return null;
   }
 }
@@ -41,6 +47,7 @@ async function fetchPrice(symbol: string): Promise<number | null> {
 function fireNotification(symbol: string, price: number, level: number) {
   if (typeof window === "undefined" || !("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
+  console.log("[monitor] FIRING notification:", symbol, "price", price, "near level", level);
   try {
     new Notification(`${symbol} approaching your analysis level: ${level.toFixed(2)}`, {
       body: `Live price ${price.toFixed(2)} is within 0.5% of a saved key level.`,
@@ -62,14 +69,13 @@ export function PriceAlertMonitor() {
     let intervals: ReturnType<typeof setInterval>[] = [];
 
     function startPolling() {
-      // Clear previous intervals
       intervals.forEach(clearInterval);
       intervals = [];
 
       const alerts = getAlerts();
+      console.log("[monitor] active alerts:", alerts.length);
       if (alerts.length === 0) return;
 
-      // Group by symbol
       const bySymbol = new Map<string, number[]>();
       for (const al of alerts) {
         const existing = bySymbol.get(al.symbol) ?? [];
@@ -77,11 +83,10 @@ export function PriceAlertMonitor() {
       }
 
       for (const [symbol, levels] of bySymbol) {
+        console.log("[monitor] polling", symbol, "for levels:", levels);
+
         const id = setInterval(async () => {
           if (!active) return;
-          if (typeof window === "undefined") return;
-          if (!("Notification" in window)) return;
-          if (Notification.permission !== "granted") return;
 
           const price = await fetchPrice(symbol);
           if (price == null) return;
@@ -91,6 +96,7 @@ export function PriceAlertMonitor() {
             if (!isNearLevel(price, level)) continue;
             const key = `${symbol}_${level}`;
             if (fired.has(key)) continue;
+            console.log("[monitor] NEAR LEVEL:", symbol, "price", price, "level", level);
             markFired(key);
             fireNotification(symbol, price, level);
           }
@@ -102,7 +108,6 @@ export function PriceAlertMonitor() {
 
     startPolling();
 
-    // Re-init when alerts change (add/remove)
     function handleAlertsChanged() {
       startPolling();
     }

@@ -5,6 +5,7 @@ import { StatsCards } from "@/components/trades/stats-cards";
 import { TradeList } from "@/components/trades/trade-list";
 import { StrategyChat } from "@/components/strategy/strategy-chat";
 import { StrategyCard } from "@/components/strategy/strategy-card";
+import { ActiveAlertsPanel } from "@/components/dashboard/active-alerts-panel";
 import { Plus, Brain } from "lucide-react";
 import { Trade } from "@/types/trade";
 import { TraderProfile } from "@/types/trader-profile";
@@ -69,8 +70,9 @@ export default async function DashboardPage() {
           <TradeList initialTrades={typedTrades} />
         </div>
 
-        {/* ── RIGHT (40%): Coach + Strategy ── */}
+        {/* ── RIGHT (40%): Alerts + Coach + Strategy ── */}
         <div className="flex flex-col gap-5">
+          <ActiveAlertsPanel />
           <StrategyChat hasProfile={hasProfile} />
 
           {!hasProfile && (
