@@ -35,10 +35,10 @@ export function Button({
           "bg-white/[0.05] text-secondary-foreground hover:bg-white/[0.08]",
         variant === "ghost" &&
           "bg-transparent text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
-        size === "sm" && "h-8 px-3 text-xs",
-        size === "md" && "h-10 px-4 text-sm",
-        size === "lg" && "h-11 px-6 text-base",
-        size === "icon" && "h-9 w-9",
+        size === "sm" && "h-9 md:h-8 px-3 text-xs",
+        size === "md" && "h-11 md:h-10 px-4 text-sm",
+        size === "lg" && "h-12 md:h-11 px-6 text-base",
+        size === "icon" && "h-11 w-11 md:h-9 md:w-9",
         className
       )}
       {...props}

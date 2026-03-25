@@ -773,7 +773,7 @@ export function ChartAnalyzer() {
             onChange={(e) => e.target.files && handleFiles(e.target.files)}
           />
 
-          <div className="grid grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
             {slots.map((_, i) => {
               const url = images[i];
               return url ? (
@@ -884,23 +884,6 @@ export function ChartAnalyzer() {
             )}
           </div>
 
-          {/* Set Price Alert button + confirmation */}
-          {saved && symbolSaved && !alertsSet && (
-            <button
-              onClick={handleSetAlerts}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#0EA5E9]/25 bg-[#0EA5E9]/5 px-3 py-2 text-xs font-medium text-[#0EA5E9] transition-colors hover:border-[#0EA5E9]/40 hover:bg-[#0EA5E9]/10"
-            >
-              <Bell className="h-3.5 w-3.5" />
-              Set Price Alerts
-            </button>
-          )}
-          {alertsSet && (
-            <div className="flex items-center gap-1.5 rounded-lg border border-[#0EA5E9]/20 bg-[#0EA5E9]/5 px-3 py-2 text-xs text-[#0EA5E9]">
-              <Bell className="h-3.5 w-3.5" />
-              {alertsSet}
-            </div>
-          )}
-
           {/* Continuation refinements */}
           {changes.length > 0 && (
             <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
@@ -916,6 +899,23 @@ export function ChartAnalyzer() {
             </div>
           )}
 
+          {/* ── Set Price Alerts ── */}
+          {saved && symbolSaved && !alertsSet && (
+            <button
+              onClick={handleSetAlerts}
+              className="flex w-full items-center justify-center gap-3 rounded-xl border border-[#0EA5E9]/20 bg-gradient-to-r from-[#0EA5E9]/10 via-[#0EA5E9]/5 to-[#8B5CF6]/10 px-6 py-4 text-sm font-semibold text-[#0EA5E9] transition-all duration-200 hover:border-[#0EA5E9]/40 hover:shadow-[0_0_24px_rgba(14,165,233,0.15)]"
+            >
+              <Bell className="h-5 w-5" />
+              Set Price Alerts for {symbolSaved}
+            </button>
+          )}
+          {alertsSet && (
+            <div className="flex w-full items-center justify-center gap-3 rounded-xl border border-[#0EA5E9]/20 bg-[#0EA5E9]/5 px-6 py-4 text-sm text-[#0EA5E9]">
+              <Bell className="h-5 w-5 shrink-0" />
+              {alertsSet}
+            </div>
+          )}
+
           {/* ── 3-column layout ── */}
           {/*
             LEFT  (200px) : ExecutionPanel — verdict + key levels + log result
@@ -924,13 +924,13 @@ export function ChartAnalyzer() {
           */}
           <div className="grid gap-5 lg:grid-cols-[200px_1fr_260px]">
 
-            {/* LEFT: Execution panel — shown 2nd on mobile, col 1 on desktop */}
-            <div className="order-2 lg:order-none">
+            {/* LEFT: Execution panel — shown 1st on mobile (verdict first), col 1 on desktop */}
+            <div className="order-1 lg:order-none">
               <ExecutionPanel result={result} />
             </div>
 
-            {/* CENTER: Analysis + Coach — shown 1st on mobile, col 2 on desktop */}
-            <div className="order-1 lg:order-none space-y-5">
+            {/* CENTER: Analysis + Coach — shown 2nd on mobile, col 2 on desktop */}
+            <div className="order-2 lg:order-none space-y-5">
               <AnalysisResult result={result} />
               <CoachChat analysisId={activeAnalysisId} />
             </div>

@@ -134,3 +134,24 @@ body {
 .animate-fade-in {
   animation: fade-in-up 0.4s ease-out both;
 }
+
+/* ── Mobile responsiveness ───────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Prevent horizontal overflow */
+  html, body { overflow-x: hidden; }
+
+  /* Larger base font on mobile for readability */
+  body { font-size: 16px; -webkit-text-size-adjust: 100%; }
+
+  /* Remove hover glow on touch devices */
+  .glow-blue-sm { box-shadow: none; }
+
+  /* Drawer slide-in animation */
+  @keyframes slide-in-right {
+    from { transform: translateX(100%); }
+    to   { transform: translateX(0); }
+  }
+  .animate-fade-in {
+    animation: slide-in-right 0.2s ease-out both;
+  }
+}

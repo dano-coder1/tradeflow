@@ -137,7 +137,7 @@ export function TradeForm() {
           <CardTitle className="text-base">Trade Details</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="symbol">Symbol *</Label>
               <Input
@@ -156,7 +156,7 @@ export function TradeForm() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="entry">Entry</Label>
               <Input
@@ -223,7 +223,7 @@ export function TradeForm() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="size">Size / Lots</Label>
               <Input
@@ -246,7 +246,7 @@ export function TradeForm() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="timeframe">Timeframe</Label>
               <Select id="timeframe" {...register("timeframe")}>
