@@ -16,7 +16,14 @@ export function getAlerts(): StoredAlert[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as StoredAlert[]) : [];
+    if (!raw) return [];
+    const all = JSON.parse(raw) as StoredAlert[];
+    // Only keep Entry alerts (clean up legacy SL/TP alerts)
+    const entryOnly = all.filter((a) => a.label === "Entry");
+    if (entryOnly.length !== all.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(entryOnly));
+    }
+    return entryOnly;
   } catch {
     return [];
   }
