@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import { getAlerts, removeAlert, type StoredAlert } from "@/lib/alert-store";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, LayoutDashboard, ScanLine, Brain, BarChart3, Plus, LogOut, Bell, X, Menu } from "lucide-react";
+import { TrendingUp, LayoutDashboard, ScanLine, Brain, BarChart3, GraduationCap, Plus, LogOut, Bell, X, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
@@ -14,6 +14,7 @@ const NAV_LINKS = [
   { href: "/dashboard/analyze",  label: "Analyzer",  icon: ScanLine        },
   { href: "/dashboard/strategy", label: "Strategy",  icon: Brain           },
   { href: "/dashboard/markets",  label: "Markets",   icon: BarChart3       },
+  { href: "/dashboard/learn",    label: "Learn",     icon: GraduationCap   },
 ];
 
 function AlertsIndicator() {
