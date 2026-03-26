@@ -49,9 +49,10 @@ export function getTradingViewSymbol(symbol: string): string | null {
 
 interface TradingViewChartProps {
   symbol: string;
+  interval?: string;
 }
 
-export function TradingViewChart({ symbol }: TradingViewChartProps) {
+export function TradingViewChart({ symbol, interval = "60" }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -71,7 +72,7 @@ export function TradingViewChart({ symbol }: TradingViewChartProps) {
     script.textContent = JSON.stringify({
       autosize: true,
       symbol: tvSymbol,
-      interval: "60",
+      interval,
       timezone: "Etc/UTC",
       theme: "dark",
       style: "1",
@@ -101,7 +102,7 @@ export function TradingViewChart({ symbol }: TradingViewChartProps) {
     return () => {
       el.innerHTML = "";
     };
-  }, [symbol]);
+  }, [symbol, interval]);
 
   return (
     <div className="tradingview-widget-container" ref={containerRef} style={{ height: "100%", width: "100%" }} />

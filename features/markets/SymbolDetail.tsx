@@ -1,14 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { ArrowLeft, TrendingUp, PenTool, ArrowLeftRight } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, TrendingUp, PenTool, ArrowLeftRight, Brain, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useMarketData } from "./useMarketData";
 import { formatPrice } from "./MarketCard";
 import { TradingViewChart, getTradingViewSymbol } from "./TradingViewChart";
-import { LightweightChart } from "@/components/chart/LightweightChart";
+import { LightweightChart, type LightweightChartHandle } from "@/components/chart/LightweightChart";
+import { TimeframeBar, TV_INTERVAL_MAP, TIMEFRAMES, type Timeframe } from "@/components/chart/TimeframeBar";
+import { CaptureActions, type CapturedShot } from "@/components/chart/CaptureActions";
 
 type ChartMode = null | "tradingview" | "advanced";
 
@@ -49,23 +52,159 @@ function ChartSelector({ onSelect }: { onSelect: (mode: ChartMode) => void }) {
   );
 }
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function summarizeDrawings(drawings: { type: string; price: number; price2?: number }[]): string {
+  if (!drawings.length) return "";
+  const lines = drawings.filter((d) => d.type === "line");
+  const zones = drawings.filter((d) => d.type === "zone");
+  const parts: string[] = [];
+  if (lines.length) parts.push(`${lines.length} level(s) at ${lines.map((l) => l.price.toFixed(2)).join(", ")}`);
+  if (zones.length) parts.push(`${zones.length} zone(s): ${zones.map((z) => `${z.price.toFixed(2)}-${z.price2?.toFixed(2)}`).join(", ")}`);
+  return parts.join("; ");
+}
+
+const DRAFT_KEY = "tf:analyzer-drafts";
+
+function saveDrafts(shots: CapturedShot[]) {
+  try {
+    // Store only metadata (data URLs are large, limit to 6)
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(shots.slice(-6)));
+  } catch {}
+}
+
+function loadDrafts(): CapturedShot[] {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
 // ── Main component ──────────────────────────────────────────────────────────
 
 export function SymbolDetail({ symbol }: SymbolDetailProps) {
+  const router = useRouter();
   const tvSymbol = getTradingViewSymbol(symbol);
   const symbols = useMemo(() => [symbol], [symbol]);
   const data = useMarketData(symbols);
   const instrument = data[symbol];
   const [chartMode, setChartMode] = useState<ChartMode>(null);
+  const [timeframe, setTimeframe] = useState<Timeframe>("1h");
+  const [drafts, setDrafts] = useState<CapturedShot[]>(() => loadDrafts());
+  const lwChartRef = useRef<LightweightChartHandle>(null);
 
-  // Unsupported symbol
+  // ── Context builders ──────────────────────────────────────────────────────
+
+  const buildContext = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/drawings?symbol=${encodeURIComponent(symbol)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (Array.isArray(json.drawings) && json.drawings.length > 0)
+          return json.drawings as { type: string; price: number; price2?: number }[];
+      }
+    } catch {}
+    return [];
+  }, [symbol]);
+
+  const handleAnalyze = useCallback(async () => {
+    const drawings = await buildContext();
+    const price = instrument?.price;
+    const params = new URLSearchParams();
+    params.set("symbol", symbol);
+    if (price) params.set("price", price.toString());
+    if (chartMode) params.set("chartMode", chartMode);
+    const summary = summarizeDrawings(drawings);
+    if (summary) params.set("context", `Chart drawings on ${symbol}: ${summary}`);
+    router.push(`/dashboard/strategy?${params.toString()}`);
+  }, [symbol, instrument, chartMode, buildContext, router]);
+
+  const handleCreateTrade = useCallback(async () => {
+    const drawings = await buildContext();
+    const params = new URLSearchParams();
+    params.set("symbol", symbol);
+    const summary = summarizeDrawings(drawings);
+    if (summary) params.set("notes", `Chart analysis: ${summary}`);
+    router.push(`/trades/new?${params.toString()}`);
+  }, [symbol, buildContext, router]);
+
+  // ── Screenshot capture ────────────────────────────────────────────────────
+
+  const captureAdvancedChart = useCallback((): string | null => {
+    return lwChartRef.current?.takeScreenshot() ?? null;
+  }, []);
+
+  const captureCurrent = useCallback(async (): Promise<CapturedShot | null> => {
+    if (chartMode !== "advanced") {
+      // TradingView is an iframe — can't screenshot due to cross-origin
+      alert("Screenshot capture requires Advanced Chart mode. Switch to Advanced Chart first.");
+      return null;
+    }
+    const dataUrl = captureAdvancedChart();
+    if (!dataUrl) return null;
+    const shot: CapturedShot = {
+      dataUrl,
+      symbol,
+      timeframe,
+      chartMode: chartMode!,
+      timestamp: Date.now(),
+    };
+    setDrafts((prev) => {
+      const next = [...prev, shot].slice(-6);
+      saveDrafts(next);
+      return next;
+    });
+    return shot;
+  }, [chartMode, captureAdvancedChart, symbol, timeframe]);
+
+  const captureFullSet = useCallback(async (): Promise<CapturedShot[]> => {
+    if (chartMode !== "advanced") {
+      alert("Full set capture requires Advanced Chart mode.");
+      return [];
+    }
+    const shots: CapturedShot[] = [];
+    for (const tf of TIMEFRAMES) {
+      setTimeframe(tf);
+      // Wait for chart to re-render with new timeframe
+      await new Promise((r) => setTimeout(r, 1200));
+      const dataUrl = captureAdvancedChart();
+      if (dataUrl) {
+        shots.push({
+          dataUrl,
+          symbol,
+          timeframe: tf,
+          chartMode: "advanced",
+          timestamp: Date.now(),
+        });
+      }
+    }
+    setDrafts((prev) => {
+      const next = [...prev, ...shots].slice(-6);
+      saveDrafts(next);
+      return next;
+    });
+    return shots;
+  }, [chartMode, captureAdvancedChart, symbol]);
+
+  const analyzeNow = useCallback(async () => {
+    let shots = drafts;
+    // If no drafts, capture current first
+    if (shots.length === 0) {
+      const shot = await captureCurrent();
+      if (shot) shots = [shot];
+    }
+    if (shots.length === 0) return;
+    // Store drafts for the analyzer page to pick up
+    saveDrafts(shots);
+    router.push("/dashboard/analyze");
+  }, [drafts, captureCurrent, router]);
+
+  // ── Unsupported symbol ────────────────────────────────────────────────────
+
   if (!tvSymbol) {
     return (
       <div className="space-y-6">
-        <Link
-          href="/dashboard/markets"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
+        <Link href="/dashboard/markets" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
           <ArrowLeft className="h-4 w-4" />
           Back to Markets
         </Link>
@@ -87,12 +226,9 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
   const isPositive = (change ?? 0) >= 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Back link */}
-      <Link
-        href="/dashboard/markets"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-      >
+      <Link href="/dashboard/markets" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
         <ArrowLeft className="h-4 w-4" />
         Back to Markets
       </Link>
@@ -101,9 +237,7 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex items-center gap-3">
           <h1 className="font-mono text-2xl font-bold text-foreground">{symbol}</h1>
-          <Badge variant={marketStatus === "open" ? "success" : "secondary"}>
-            {marketStatus}
-          </Badge>
+          <Badge variant={marketStatus === "open" ? "success" : "secondary"}>{marketStatus}</Badge>
         </div>
 
         <div className="flex items-center gap-3">
@@ -116,14 +250,8 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
                   {formatPrice(price, symbol)}
                 </span>
                 {change !== null && changePercent !== null && (
-                  <span
-                    className={cn(
-                      "font-mono text-sm font-semibold tabular-nums",
-                      isPositive ? "text-emerald-400" : "text-red-400"
-                    )}
-                  >
-                    {isPositive ? "+" : ""}
-                    {changePercent.toFixed(2)}%
+                  <span className={cn("font-mono text-sm font-semibold tabular-nums", isPositive ? "text-emerald-400" : "text-red-400")}>
+                    {isPositive ? "+" : ""}{changePercent.toFixed(2)}%
                   </span>
                 )}
               </>
@@ -144,16 +272,47 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
         </div>
       </div>
 
+      {/* Toolbar row: TF + Actions + Workflow */}
+      {chartMode && (
+        <div className="flex flex-wrap items-center gap-2">
+          <TimeframeBar active={timeframe} onChange={setTimeframe} />
+          <CaptureActions
+            onCaptureCurrent={captureCurrent}
+            onCaptureFullSet={captureFullSet}
+            onAnalyzeNow={analyzeNow}
+            drafts={drafts}
+          />
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleAnalyze}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#8B5CF6]/15 px-3 py-1.5 text-xs font-semibold text-[#8B5CF6] transition-colors hover:bg-[#8B5CF6]/25"
+            >
+              <Brain className="h-3.5 w-3.5" />
+              Coach
+            </button>
+            <button
+              onClick={handleCreateTrade}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#0EA5E9]/15 px-3 py-1.5 text-xs font-semibold text-[#0EA5E9] transition-colors hover:bg-[#0EA5E9]/25"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Trade
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Chart area */}
       {chartMode === null && <ChartSelector onSelect={setChartMode} />}
 
       {chartMode === "tradingview" && (
         <div className="glass rounded-xl overflow-hidden" style={{ height: "calc(100vh - 120px)", width: "100%" }}>
-          <TradingViewChart symbol={symbol} />
+          <TradingViewChart symbol={symbol} interval={TV_INTERVAL_MAP[timeframe]} />
         </div>
       )}
 
-      {chartMode === "advanced" && <LightweightChart symbol={symbol} />}
+      {chartMode === "advanced" && (
+        <LightweightChart ref={lwChartRef} symbol={symbol} timeframe={timeframe} />
+      )}
     </div>
   );
 }

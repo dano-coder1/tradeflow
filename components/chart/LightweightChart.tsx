@@ -1,22 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useImperativeHandle } from "react";
 import { createChart, CandlestickSeries, type IChartApi, type ISeriesApi, type CandlestickData, type Time, ColorType } from "lightweight-charts";
 import { ChartToolbar, type DrawingTool } from "./ChartToolbar";
 import { ChartDrawingOverlay, type Drawing } from "./ChartDrawingOverlay";
 
 // ── Synthetic OHLC generator centered around a real price ────────────────────
 
-function generateSyntheticOHLC(basePrice: number, count: number): CandlestickData<Time>[] {
+function generateSyntheticOHLC(basePrice: number, count: number, intervalSec: number = 3600): CandlestickData<Time>[] {
   const data: CandlestickData<Time>[] = [];
-  // Scale volatility to ~0.3% of price per candle
-  const volatility = basePrice * 0.003;
+  // Scale volatility based on timeframe — larger TF = larger candles
+  const tfFactor = Math.sqrt(intervalSec / 3600);
+  const volatility = basePrice * 0.003 * tfFactor;
   let close = basePrice;
   const now = Math.floor(Date.now() / 1000);
-  const interval = 3600; // 1h candles
 
   for (let i = count; i > 0; i--) {
-    const time = (now - i * interval) as Time;
+    const time = (now - i * intervalSec) as Time;
     const open = close + (Math.random() - 0.5) * volatility;
     const high = Math.max(open, close) + Math.random() * volatility * 0.8;
     const low = Math.min(open, close) - Math.random() * volatility * 0.8;
@@ -28,11 +28,19 @@ function generateSyntheticOHLC(basePrice: number, count: number): CandlestickDat
 
 // ── Component ────────────────────────────────────────────────────────────────
 
+import { INTERVAL_SECONDS, type Timeframe } from "./TimeframeBar";
+import React from "react";
+
 interface LightweightChartProps {
   symbol: string;
+  timeframe?: Timeframe;
 }
 
-export function LightweightChart({ symbol }: LightweightChartProps) {
+export interface LightweightChartHandle {
+  takeScreenshot: () => string | null;
+}
+
+export const LightweightChart = React.forwardRef<LightweightChartHandle, LightweightChartProps>(function LightweightChart({ symbol, timeframe = "1h" }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -43,6 +51,17 @@ export function LightweightChart({ symbol }: LightweightChartProps) {
   const [loadingDrawings, setLoadingDrawings] = useState(true);
   // Force re-render to update drawing coordinates when chart scrolls/zooms
   const [, setRenderTick] = useState(0);
+
+  useImperativeHandle(ref, () => ({
+    takeScreenshot: () => {
+      const chart = chartRef.current;
+      if (!chart) return null;
+      try {
+        const canvas = chart.takeScreenshot(true);
+        return canvas.toDataURL("image/png");
+      } catch { return null; }
+    },
+  }), []);
 
   // Load saved drawings
   useEffect(() => {
@@ -98,17 +117,17 @@ export function LightweightChart({ symbol }: LightweightChartProps) {
     seriesRef.current = series;
 
     // Fetch real price then build synthetic candles around it
+    const intervalSec = INTERVAL_SECONDS[timeframe] ?? 3600;
     fetch(`/api/prices/${encodeURIComponent(symbol)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         const realPrice = json?.price ?? 100;
-        series.setData(generateSyntheticOHLC(realPrice, 200));
+        series.setData(generateSyntheticOHLC(realPrice, 200, intervalSec));
         chart.timeScale().fitContent();
         setRenderTick((n) => n + 1);
       })
       .catch(() => {
-        // Fallback if price fetch fails
-        series.setData(generateSyntheticOHLC(100, 200));
+        series.setData(generateSyntheticOHLC(100, 200, intervalSec));
         chart.timeScale().fitContent();
       });
 
@@ -130,7 +149,7 @@ export function LightweightChart({ symbol }: LightweightChartProps) {
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, [symbol]);
+  }, [symbol, timeframe]);
 
   // Coordinate conversion callbacks for the drawing overlay
   const coordToPrice = useCallback((y: number): number | null => {
@@ -197,4 +216,4 @@ export function LightweightChart({ symbol }: LightweightChartProps) {
       </div>
     </div>
   );
-}
+});
