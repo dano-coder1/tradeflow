@@ -4,7 +4,10 @@
       "Bash(npm install:*)",
       "Bash(npx tsc:*)",
       "Bash(npm run:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(ls -la /c/Users/danoo/Documents/tradeflow/app/\\\\\\(dashboard\\\\\\)/dashboard/)",
+      "Bash(ls:*)",
+      "Bash(npx next:*)"
     ]
   }
 }
