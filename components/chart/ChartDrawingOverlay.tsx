@@ -3,10 +3,11 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import type { DrawingTool } from "./ChartToolbar";
 
+// Drawings store actual price values, not pixel/percentage coordinates
 export interface Drawing {
   type: "line" | "zone";
-  y: number;          // percentage from top (0–1)
-  y2?: number;        // for zones
+  price: number;
+  price2?: number;   // for zones (second price boundary)
   color: string;
 }
 
@@ -14,16 +15,26 @@ interface ChartDrawingOverlayProps {
   activeTool: DrawingTool;
   drawings: Drawing[];
   onAddDrawing: (d: Drawing) => void;
+  /** Convert a pixel Y coordinate (relative to container) to a chart price */
+  coordToPrice: (y: number) => number | null;
+  /** Convert a chart price to a pixel Y coordinate (relative to container) */
+  priceToCoord: (price: number) => number | null;
 }
 
 const LINE_COLOR = "#F5A623";
 const ZONE_COLOR = "rgba(59, 130, 246, 0.15)";
 const ZONE_BORDER = "#3B82F6";
 
-export function ChartDrawingOverlay({ activeTool, drawings, onAddDrawing }: ChartDrawingOverlayProps) {
+export function ChartDrawingOverlay({
+  activeTool,
+  drawings,
+  onAddDrawing,
+  coordToPrice,
+  priceToCoord,
+}: ChartDrawingOverlayProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [dragStart, setDragStart] = useState<number | null>(null);
-  const [dragCurrent, setDragCurrent] = useState<number | null>(null);
+  const [dragStartY, setDragStartY] = useState<number | null>(null);
+  const [dragCurrentY, setDragCurrentY] = useState<number | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
@@ -37,48 +48,51 @@ export function ChartDrawingOverlay({ activeTool, drawings, onAddDrawing }: Char
     return () => ro.disconnect();
   }, []);
 
-  const getY = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => {
-      const rect = svgRef.current?.getBoundingClientRect();
-      if (!rect || rect.height === 0) return 0;
-      return (e.clientY - rect.top) / rect.height;
-    },
-    []
-  );
+  const getLocalY = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return 0;
+    return e.clientY - rect.top;
+  }, []);
 
   function handleMouseDown(e: React.MouseEvent<SVGSVGElement>) {
     if (!activeTool) return;
-    const y = getY(e);
+    const localY = getLocalY(e);
 
     if (activeTool === "line") {
-      onAddDrawing({ type: "line", y, color: LINE_COLOR });
+      const price = coordToPrice(localY);
+      if (price !== null) {
+        onAddDrawing({ type: "line", price, color: LINE_COLOR });
+      }
       return;
     }
 
     if (activeTool === "zone") {
-      setDragStart(y);
-      setDragCurrent(y);
+      setDragStartY(localY);
+      setDragCurrentY(localY);
     }
   }
 
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
-    if (activeTool !== "zone" || dragStart === null) return;
-    setDragCurrent(getY(e));
+    if (activeTool !== "zone" || dragStartY === null) return;
+    setDragCurrentY(getLocalY(e));
   }
 
   function handleMouseUp() {
-    if (activeTool === "zone" && dragStart !== null && dragCurrent !== null) {
-      const top = Math.min(dragStart, dragCurrent);
-      const bottom = Math.max(dragStart, dragCurrent);
-      if (Math.abs(bottom - top) > 0.005) {
-        onAddDrawing({ type: "zone", y: top, y2: bottom, color: ZONE_COLOR });
+    if (activeTool === "zone" && dragStartY !== null && dragCurrentY !== null) {
+      if (Math.abs(dragCurrentY - dragStartY) > 4) {
+        const p1 = coordToPrice(dragStartY);
+        const p2 = coordToPrice(dragCurrentY);
+        if (p1 !== null && p2 !== null) {
+          const top = Math.max(p1, p2);
+          const bottom = Math.min(p1, p2);
+          onAddDrawing({ type: "zone", price: top, price2: bottom, color: ZONE_COLOR });
+        }
       }
     }
-    setDragStart(null);
-    setDragCurrent(null);
+    setDragStartY(null);
+    setDragCurrentY(null);
   }
 
-  const h = size.h;
   const w = size.w;
 
   return (
@@ -87,7 +101,7 @@ export function ChartDrawingOverlay({ activeTool, drawings, onAddDrawing }: Char
       className="absolute inset-0 w-full h-full"
       style={{
         pointerEvents: activeTool ? "auto" : "none",
-        cursor: activeTool === "line" ? "crosshair" : activeTool === "zone" ? "crosshair" : "default",
+        cursor: activeTool ? "crosshair" : "default",
         zIndex: activeTool ? 20 : 5,
       }}
       onMouseDown={handleMouseDown}
@@ -95,44 +109,45 @@ export function ChartDrawingOverlay({ activeTool, drawings, onAddDrawing }: Char
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
-      {/* Saved drawings */}
+      {/* Rendered drawings */}
       {drawings.map((d, i) => {
         if (d.type === "line") {
-          const py = d.y * h;
+          const py = priceToCoord(d.price);
+          if (py === null) return null;
           return (
             <line
               key={i}
-              x1={0}
-              y1={py}
-              x2={w}
-              y2={py}
+              x1={0} y1={py} x2={w} y2={py}
               stroke={d.color}
               strokeWidth={1.5}
               strokeDasharray="6 3"
             />
           );
         }
-        if (d.type === "zone" && d.y2 !== undefined) {
-          const top = d.y * h;
-          const bottom = d.y2 * h;
+        if (d.type === "zone" && d.price2 !== undefined) {
+          const topY = priceToCoord(d.price);
+          const bottomY = priceToCoord(d.price2);
+          if (topY === null || bottomY === null) return null;
+          const minY = Math.min(topY, bottomY);
+          const maxY = Math.max(topY, bottomY);
           return (
             <g key={i}>
-              <rect x={0} y={top} width={w} height={bottom - top} fill={d.color} />
-              <line x1={0} y1={top} x2={w} y2={top} stroke={ZONE_BORDER} strokeWidth={0.5} />
-              <line x1={0} y1={bottom} x2={w} y2={bottom} stroke={ZONE_BORDER} strokeWidth={0.5} />
+              <rect x={0} y={minY} width={w} height={maxY - minY} fill={d.color} />
+              <line x1={0} y1={minY} x2={w} y2={minY} stroke={ZONE_BORDER} strokeWidth={0.5} />
+              <line x1={0} y1={maxY} x2={w} y2={maxY} stroke={ZONE_BORDER} strokeWidth={0.5} />
             </g>
           );
         }
         return null;
       })}
 
-      {/* Active drag preview */}
-      {activeTool === "zone" && dragStart !== null && dragCurrent !== null && (
+      {/* Active zone drag preview */}
+      {activeTool === "zone" && dragStartY !== null && dragCurrentY !== null && (
         <rect
           x={0}
-          y={Math.min(dragStart, dragCurrent) * h}
+          y={Math.min(dragStartY, dragCurrentY)}
           width={w}
-          height={Math.abs(dragCurrent - dragStart) * h}
+          height={Math.abs(dragCurrentY - dragStartY)}
           fill={ZONE_COLOR}
           stroke={ZONE_BORDER}
           strokeWidth={0.5}

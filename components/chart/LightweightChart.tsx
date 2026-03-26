@@ -5,20 +5,22 @@ import { createChart, CandlestickSeries, type IChartApi, type ISeriesApi, type C
 import { ChartToolbar, type DrawingTool } from "./ChartToolbar";
 import { ChartDrawingOverlay, type Drawing } from "./ChartDrawingOverlay";
 
-// ── Mock OHLC data generator (replace with real API later) ───────────────────
+// ── Synthetic OHLC generator centered around a real price ────────────────────
 
-function generateMockOHLC(count: number): CandlestickData<Time>[] {
+function generateSyntheticOHLC(basePrice: number, count: number): CandlestickData<Time>[] {
   const data: CandlestickData<Time>[] = [];
-  let close = 100 + Math.random() * 50;
+  // Scale volatility to ~0.3% of price per candle
+  const volatility = basePrice * 0.003;
+  let close = basePrice;
   const now = Math.floor(Date.now() / 1000);
   const interval = 3600; // 1h candles
 
   for (let i = count; i > 0; i--) {
     const time = (now - i * interval) as Time;
-    const open = close + (Math.random() - 0.5) * 2;
-    const high = Math.max(open, close) + Math.random() * 3;
-    const low = Math.min(open, close) - Math.random() * 3;
-    close = open + (Math.random() - 0.5) * 4;
+    const open = close + (Math.random() - 0.5) * volatility;
+    const high = Math.max(open, close) + Math.random() * volatility * 0.8;
+    const low = Math.min(open, close) - Math.random() * volatility * 0.8;
+    close = open + (Math.random() - 0.5) * volatility * 1.2;
     data.push({ time, open, high, low, close });
   }
   return data;
@@ -39,6 +41,8 @@ export function LightweightChart({ symbol }: LightweightChartProps) {
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [saving, setSaving] = useState(false);
   const [loadingDrawings, setLoadingDrawings] = useState(true);
+  // Force re-render to update drawing coordinates when chart scrolls/zooms
+  const [, setRenderTick] = useState(0);
 
   // Load saved drawings
   useEffect(() => {
@@ -52,7 +56,7 @@ export function LightweightChart({ symbol }: LightweightChartProps) {
       .finally(() => setLoadingDrawings(false));
   }, [symbol]);
 
-  // Create chart
+  // Create chart + fetch real price
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -90,15 +94,33 @@ export function LightweightChart({ symbol }: LightweightChartProps) {
       wickDownColor: "#f87171",
     });
 
-    series.setData(generateMockOHLC(200));
-    chart.timeScale().fitContent();
-
     chartRef.current = chart;
     seriesRef.current = series;
+
+    // Fetch real price then build synthetic candles around it
+    fetch(`/api/prices/${encodeURIComponent(symbol)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        const realPrice = json?.price ?? 100;
+        series.setData(generateSyntheticOHLC(realPrice, 200));
+        chart.timeScale().fitContent();
+        setRenderTick((n) => n + 1);
+      })
+      .catch(() => {
+        // Fallback if price fetch fails
+        series.setData(generateSyntheticOHLC(100, 200));
+        chart.timeScale().fitContent();
+      });
+
+    // Re-render overlay when chart view changes (scroll/zoom)
+    chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      setRenderTick((n) => n + 1);
+    });
 
     const ro = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
       chart.resize(width, height);
+      setRenderTick((n) => n + 1);
     });
     ro.observe(el);
 
@@ -108,6 +130,23 @@ export function LightweightChart({ symbol }: LightweightChartProps) {
       chartRef.current = null;
       seriesRef.current = null;
     };
+  }, [symbol]);
+
+  // Coordinate conversion callbacks for the drawing overlay
+  const coordToPrice = useCallback((y: number): number | null => {
+    const series = seriesRef.current;
+    if (!series) return null;
+    const price = series.coordinateToPrice(y);
+    if (price === null || !isFinite(price as number)) return null;
+    return price as number;
+  }, []);
+
+  const priceToCoord = useCallback((price: number): number | null => {
+    const series = seriesRef.current;
+    if (!series) return null;
+    const coord = series.priceToCoordinate(price);
+    if (coord === null || !isFinite(coord)) return null;
+    return coord;
   }, []);
 
   const addDrawing = useCallback((d: Drawing) => {
@@ -147,6 +186,8 @@ export function LightweightChart({ symbol }: LightweightChartProps) {
           activeTool={activeTool}
           drawings={drawings}
           onAddDrawing={addDrawing}
+          coordToPrice={coordToPrice}
+          priceToCoord={priceToCoord}
         />
         {loadingDrawings && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/30 z-30">
