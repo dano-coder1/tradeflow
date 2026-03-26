@@ -71,63 +71,65 @@ export function MarketCard({ instrument, onRemove }: MarketCardProps) {
   const isPositive = (change ?? 0) >= 0;
 
   return (
-    <Link
-      href={`/dashboard/markets/${encodeURIComponent(symbol)}`}
-      className="glass rounded-xl p-4 transition-all duration-200 hover:bg-white/[0.03] group relative block"
-    >
-      {/* Remove button */}
+    <div className="relative group">
+      <Link
+        href={`/dashboard/markets/${encodeURIComponent(symbol)}`}
+        className="glass rounded-xl p-4 transition-all duration-200 hover:bg-white/[0.03] block"
+      >
+        {/* Header: symbol + status */}
+        <div className="flex items-center justify-between mb-2">
+          <span className="font-mono text-xs font-bold text-foreground tracking-wide">{symbol}</span>
+          <Badge variant={marketStatus === "open" ? "success" : "secondary"} className="text-[9px]">
+            {marketStatus}
+          </Badge>
+        </div>
+
+        {/* Price */}
+        <div className="mb-1.5">
+          {loading && price === null ? (
+            <div className="h-7 w-24 animate-pulse rounded bg-white/[0.06]" />
+          ) : error && price === null ? (
+            <span className="text-xs text-red-400">Unavailable</span>
+          ) : price !== null ? (
+            <span className="font-mono text-xl font-bold text-foreground tabular-nums leading-none">
+              {formatPrice(price, symbol)}
+            </span>
+          ) : null}
+        </div>
+
+        {/* Change + sparkline */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            {change !== null && changePercent !== null ? (
+              <>
+                <span
+                  className={cn(
+                    "font-mono text-xs font-semibold tabular-nums",
+                    isPositive ? "text-emerald-400" : "text-red-400"
+                  )}
+                >
+                  {isPositive ? "+" : ""}
+                  {changePercent.toFixed(2)}%
+                </span>
+              </>
+            ) : (
+              <span className="text-[10px] text-muted-foreground">--</span>
+            )}
+          </div>
+          <Sparkline data={sparkline} positive={isPositive} />
+        </div>
+      </Link>
+
+      {/* Remove button — outside Link to avoid nested interactive content */}
       {onRemove && (
         <button
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(symbol); }}
+          onClick={() => onRemove(symbol)}
           className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground/0 transition-all group-hover:text-muted-foreground/60 hover:!text-foreground hover:bg-white/[0.06] z-10"
           title="Remove"
         >
           <X className="h-3.5 w-3.5" />
         </button>
       )}
-
-      {/* Header: symbol + status */}
-      <div className="flex items-center justify-between mb-2">
-        <span className="font-mono text-xs font-bold text-foreground tracking-wide">{symbol}</span>
-        <Badge variant={marketStatus === "open" ? "success" : "secondary"} className="text-[9px]">
-          {marketStatus}
-        </Badge>
-      </div>
-
-      {/* Price */}
-      <div className="mb-1.5">
-        {loading && price === null ? (
-          <div className="h-7 w-24 animate-pulse rounded bg-white/[0.06]" />
-        ) : error && price === null ? (
-          <span className="text-xs text-red-400">Unavailable</span>
-        ) : price !== null ? (
-          <span className="font-mono text-xl font-bold text-foreground tabular-nums leading-none">
-            {formatPrice(price, symbol)}
-          </span>
-        ) : null}
-      </div>
-
-      {/* Change + sparkline */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          {change !== null && changePercent !== null ? (
-            <>
-              <span
-                className={cn(
-                  "font-mono text-xs font-semibold tabular-nums",
-                  isPositive ? "text-emerald-400" : "text-red-400"
-                )}
-              >
-                {isPositive ? "+" : ""}
-                {changePercent.toFixed(2)}%
-              </span>
-            </>
-          ) : (
-            <span className="text-[10px] text-muted-foreground">--</span>
-          )}
-        </div>
-        <Sparkline data={sparkline} positive={isPositive} />
-      </div>
-    </Link>
+    </div>
   );
 }
