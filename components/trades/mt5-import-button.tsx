@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Upload, X, Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { Upload, X, Loader2, CheckCircle, AlertCircle, Pencil, Trash2, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 
@@ -13,15 +13,71 @@ interface ExtractedTrade {
   exit: number | null;
   pnl: number | null;
   date: string | null;
+  sl?: number | null;
+  tp?: number | null;
+  notes?: string | null;
 }
 
 type Step = "idle" | "extracting" | "preview" | "importing" | "done" | "error";
+
+// ── Inline edit row ──────────────────────────────────────────────────────────
+
+function EditableRow({
+  trade,
+  onSave,
+  onCancel,
+}: {
+  trade: ExtractedTrade;
+  onSave: (t: ExtractedTrade) => void;
+  onCancel: () => void;
+}) {
+  const [d, setD] = useState(trade);
+  const set = (k: keyof ExtractedTrade, v: string) => {
+    if (k === "symbol" || k === "direction" || k === "notes") {
+      setD((p) => ({ ...p, [k]: v }));
+    } else {
+      setD((p) => ({ ...p, [k]: v.trim() === "" ? null : Number(v) }));
+    }
+  };
+
+  const inputCn = "w-full bg-white/[0.06] border border-white/[0.1] rounded px-1.5 py-1 text-xs font-mono text-foreground outline-none focus:border-[#0EA5E9]/40";
+
+  return (
+    <tr className="bg-white/[0.03]">
+      <td className="px-2 py-1.5">
+        <input value={d.symbol} onChange={(e) => set("symbol", e.target.value.toUpperCase())} className={cn(inputCn, "w-20")} />
+      </td>
+      <td className="px-2 py-1.5">
+        <select
+          value={d.direction}
+          onChange={(e) => setD((p) => ({ ...p, direction: e.target.value as "LONG" | "SHORT" }))}
+          className={cn(inputCn, "w-20")}
+        >
+          <option value="LONG">LONG</option>
+          <option value="SHORT">SHORT</option>
+        </select>
+      </td>
+      <td className="px-2 py-1.5"><input type="number" step="any" value={d.entry ?? ""} onChange={(e) => set("entry", e.target.value)} className={cn(inputCn, "w-24 text-right")} /></td>
+      <td className="px-2 py-1.5"><input type="number" step="any" value={d.exit ?? ""} onChange={(e) => set("exit", e.target.value)} className={cn(inputCn, "w-24 text-right")} /></td>
+      <td className="px-2 py-1.5"><input type="number" step="any" value={d.pnl ?? ""} onChange={(e) => set("pnl", e.target.value)} className={cn(inputCn, "w-20 text-right")} /></td>
+      <td className="px-2 py-1.5">
+        <div className="flex items-center gap-1 justify-end">
+          <button onClick={() => onSave(d)} className="rounded p-1 text-emerald-400 hover:bg-emerald-400/10" title="Save"><Check className="h-3.5 w-3.5" /></button>
+          <button onClick={onCancel} className="rounded p-1 text-muted-foreground hover:bg-white/[0.06]" title="Cancel"><X className="h-3.5 w-3.5" /></button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
 
 export function MT5ImportButton() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>("idle");
   const [trades, setTrades] = useState<ExtractedTrade[]>([]);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [importedCount, setImportedCount] = useState(0);
 
@@ -61,6 +117,7 @@ export function MT5ImportButton() {
   }, []);
 
   const handleImport = useCallback(async () => {
+    if (trades.length === 0) return;
     setStep("importing");
     try {
       const res = await fetch("/api/trades/bulk", {
@@ -86,15 +143,26 @@ export function MT5ImportButton() {
   const close = useCallback(() => {
     setStep("idle");
     setTrades([]);
+    setEditingIdx(null);
     setError("");
   }, []);
+
+  function removeTrade(idx: number) {
+    setTrades((prev) => prev.filter((_, i) => i !== idx));
+    if (editingIdx === idx) setEditingIdx(null);
+  }
+
+  function saveEdit(idx: number, updated: ExtractedTrade) {
+    setTrades((prev) => prev.map((t, i) => (i === idx ? updated : t)));
+    setEditingIdx(null);
+  }
 
   // Stats
   const totalPnl = trades.reduce((s, t) => s + (t.pnl ?? 0), 0);
   const wins = trades.filter((t) => (t.pnl ?? 0) > 0).length;
   const winRate = trades.length > 0 ? ((wins / trades.length) * 100).toFixed(0) : "0";
 
-  const showModal = step === "preview" || step === "importing" || step === "extracting" || step === "done" || step === "error";
+  const showModal = step !== "idle";
 
   return (
     <>
@@ -108,19 +176,18 @@ export function MT5ImportButton() {
         Import MT5
       </button>
 
-      {/* Modal overlay */}
       {showModal && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={close}>
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
           <div
-            className="glass-strong relative w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl shadow-2xl shadow-black/40 overflow-hidden"
+            className="glass-strong relative w-full max-w-3xl max-h-[85vh] flex flex-col rounded-2xl shadow-2xl shadow-black/40 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
               <h2 className="text-lg font-bold text-foreground">
                 {step === "extracting" && "Extracting trades..."}
-                {step === "preview" && `Found ${trades.length} trades`}
+                {step === "preview" && `Found ${trades.length} trade${trades.length !== 1 ? "s" : ""}`}
                 {step === "importing" && "Importing..."}
                 {step === "done" && "Import complete"}
                 {step === "error" && "Error"}
@@ -132,7 +199,6 @@ export function MT5ImportButton() {
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
-              {/* Extracting */}
               {step === "extracting" && (
                 <div className="flex flex-col items-center justify-center py-12 gap-3">
                   <Loader2 className="h-8 w-8 animate-spin text-[#0EA5E9]" />
@@ -140,7 +206,6 @@ export function MT5ImportButton() {
                 </div>
               )}
 
-              {/* Error */}
               {step === "error" && (
                 <div className="flex flex-col items-center justify-center py-12 gap-3">
                   <AlertCircle className="h-8 w-8 text-red-400" />
@@ -151,7 +216,6 @@ export function MT5ImportButton() {
                 </div>
               )}
 
-              {/* Done */}
               {step === "done" && (
                 <div className="flex flex-col items-center justify-center py-12 gap-3">
                   <CheckCircle className="h-8 w-8 text-emerald-400" />
@@ -159,7 +223,6 @@ export function MT5ImportButton() {
                 </div>
               )}
 
-              {/* Preview table */}
               {(step === "preview" || step === "importing") && (
                 <>
                   {/* Summary */}
@@ -180,41 +243,72 @@ export function MT5ImportButton() {
                     </div>
                   </div>
 
-                  {/* Table */}
-                  <div className="overflow-x-auto rounded-lg border border-white/[0.06]">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-white/[0.06] bg-white/[0.02]">
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Symbol</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Dir</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">Entry</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">Exit</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">PnL</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/[0.04]">
-                        {trades.map((t, i) => (
-                          <tr key={i} className="hover:bg-white/[0.02]">
-                            <td className="px-3 py-2 font-mono text-xs font-bold text-foreground">{t.symbol}</td>
-                            <td className="px-3 py-2">
-                              <span className={cn("text-xs font-semibold", t.direction === "LONG" ? "text-emerald-400" : "text-red-400")}>
-                                {t.direction}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs text-muted-foreground">
-                              {t.entry?.toFixed(5) ?? "—"}
-                            </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs text-muted-foreground">
-                              {t.exit?.toFixed(5) ?? "—"}
-                            </td>
-                            <td className={cn("px-3 py-2 text-right font-mono text-xs font-semibold", (t.pnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400")}>
-                              {t.pnl !== null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}` : "—"}
-                            </td>
+                  {trades.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">All trades removed.</p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border border-white/[0.06]">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-white/[0.06] bg-white/[0.02]">
+                            <th className="px-2 py-2 text-left text-xs font-semibold text-muted-foreground">Symbol</th>
+                            <th className="px-2 py-2 text-left text-xs font-semibold text-muted-foreground">Dir</th>
+                            <th className="px-2 py-2 text-right text-xs font-semibold text-muted-foreground">Entry</th>
+                            <th className="px-2 py-2 text-right text-xs font-semibold text-muted-foreground">Exit</th>
+                            <th className="px-2 py-2 text-right text-xs font-semibold text-muted-foreground">PnL</th>
+                            <th className="px-2 py-2 w-20" />
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody className="divide-y divide-white/[0.04]">
+                          {trades.map((t, i) =>
+                            editingIdx === i ? (
+                              <EditableRow
+                                key={i}
+                                trade={t}
+                                onSave={(updated) => saveEdit(i, updated)}
+                                onCancel={() => setEditingIdx(null)}
+                              />
+                            ) : (
+                              <tr key={i} className="group/row hover:bg-white/[0.02]">
+                                <td className="px-2 py-2 font-mono text-xs font-bold text-foreground">{t.symbol}</td>
+                                <td className="px-2 py-2">
+                                  <span className={cn("text-xs font-semibold", t.direction === "LONG" ? "text-emerald-400" : "text-red-400")}>
+                                    {t.direction}
+                                  </span>
+                                </td>
+                                <td className="px-2 py-2 text-right font-mono text-xs text-muted-foreground">
+                                  {t.entry?.toFixed(5) ?? "—"}
+                                </td>
+                                <td className="px-2 py-2 text-right font-mono text-xs text-muted-foreground">
+                                  {t.exit?.toFixed(5) ?? "—"}
+                                </td>
+                                <td className={cn("px-2 py-2 text-right font-mono text-xs font-semibold", (t.pnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400")}>
+                                  {t.pnl !== null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}` : "—"}
+                                </td>
+                                <td className="px-2 py-2">
+                                  <div className="flex items-center gap-1 justify-end opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                    <button
+                                      onClick={() => setEditingIdx(i)}
+                                      className="rounded p-1 text-muted-foreground/60 hover:bg-white/[0.08] hover:text-foreground"
+                                      title="Edit"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => removeTrade(i)}
+                                      className="rounded p-1 text-muted-foreground/60 hover:bg-red-500/10 hover:text-red-400"
+                                      title="Remove"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -227,7 +321,8 @@ export function MT5ImportButton() {
                 </button>
                 <button
                   onClick={handleImport}
-                  className="btn-gradient rounded-lg px-4 py-2 text-sm font-semibold text-white"
+                  disabled={trades.length === 0}
+                  className="btn-gradient rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
                 >
                   Import All
                 </button>
