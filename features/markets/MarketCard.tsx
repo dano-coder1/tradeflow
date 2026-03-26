@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -41,7 +42,7 @@ function Sparkline({ data, positive }: { data: number[]; positive: boolean }) {
 
 // ── Format price ─────────────────────────────────────────────────────────────
 
-function formatPrice(price: number, symbol: string): string {
+export function formatPrice(price: number, symbol: string): string {
   const upper = symbol.toUpperCase();
   // Crypto with large values
   if (upper.includes("BTC")) return price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -70,12 +71,15 @@ export function MarketCard({ instrument, onRemove }: MarketCardProps) {
   const isPositive = (change ?? 0) >= 0;
 
   return (
-    <div className="glass rounded-xl p-4 transition-all duration-200 hover:bg-white/[0.03] group relative">
+    <Link
+      href={`/dashboard/markets/${encodeURIComponent(symbol)}`}
+      className="glass rounded-xl p-4 transition-all duration-200 hover:bg-white/[0.03] group relative block"
+    >
       {/* Remove button */}
       {onRemove && (
         <button
-          onClick={() => onRemove(symbol)}
-          className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground/0 transition-all group-hover:text-muted-foreground/60 hover:!text-foreground hover:bg-white/[0.06]"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(symbol); }}
+          className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground/0 transition-all group-hover:text-muted-foreground/60 hover:!text-foreground hover:bg-white/[0.06] z-10"
           title="Remove"
         >
           <X className="h-3.5 w-3.5" />
@@ -124,6 +128,6 @@ export function MarketCard({ instrument, onRemove }: MarketCardProps) {
         </div>
         <Sparkline data={sparkline} positive={isPositive} />
       </div>
-    </div>
+    </Link>
   );
 }
