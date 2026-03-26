@@ -68,7 +68,7 @@ export function MarketsPanel() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Markets</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Live prices &middot; polling every 15s
+            Live prices &middot; polling every 5s
           </p>
         </div>
 
