@@ -528,6 +528,27 @@ export function ChartAnalyzer() {
   const [alertSymbol, setAlertSymbol] = useState("");
   const [alertSymbolError, setAlertSymbolError] = useState(false);
 
+  // Pick up chart-captured drafts from sessionStorage
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("tf:analyzer-drafts");
+      if (!raw) return;
+      const drafts = JSON.parse(raw) as { dataUrl: string; symbol: string; timeframe: string }[];
+      if (!Array.isArray(drafts) || drafts.length === 0) return;
+      // Convert data URLs to image URLs for the analyzer
+      // Data URLs work directly as image sources
+      const dataUrls = drafts.map((d) => d.dataUrl).filter(Boolean);
+      if (dataUrls.length > 0) {
+        setImages((prev) => prev.length === 0 ? dataUrls.slice(0, 6) : prev);
+        // Auto-set symbol from the first draft
+        const sym = drafts[0]?.symbol;
+        if (sym) setSymbol(sym);
+      }
+      // Clear drafts after consuming
+      sessionStorage.removeItem("tf:analyzer-drafts");
+    } catch {}
+  }, []);
+
   function handleSetAlerts() {
     if (!result) return;
     const sym = symbolSaved || alertSymbol.trim().toUpperCase();

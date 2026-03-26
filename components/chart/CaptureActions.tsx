@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Camera, Layers, Zap, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Camera, Layers, Zap, Loader2, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface CapturedShot {
@@ -23,29 +23,46 @@ export function CaptureActions({ onCaptureCurrent, onCaptureFullSet, onAnalyzeNo
   const [capturing, setCapturing] = useState(false);
   const [capturingSet, setCapturingSet] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   async function handleCapture() {
     setCapturing(true);
-    try { await onCaptureCurrent(); } catch {}
+    try {
+      const shot = await onCaptureCurrent();
+      if (shot) setToast(`Captured ${shot.timeframe} chart`);
+      else setToast("Capture failed — try Advanced Chart mode");
+    } catch { setToast("Capture failed"); }
     setCapturing(false);
   }
 
   async function handleFullSet() {
     setCapturingSet(true);
-    try { await onCaptureFullSet(); } catch {}
+    try {
+      const shots = await onCaptureFullSet();
+      if (shots.length > 0) setToast(`Captured ${shots.length} timeframes`);
+      else setToast("No charts captured");
+    } catch { setToast("Capture failed"); }
     setCapturingSet(false);
   }
 
   async function handleAnalyze() {
     setAnalyzing(true);
-    try { await onAnalyzeNow(); } catch {}
+    try {
+      await onAnalyzeNow();
+    } catch { setToast("Failed to open analyzer"); }
     setAnalyzing(false);
   }
 
   const busy = capturing || capturingSet || analyzing;
 
   return (
-    <div className="flex items-center gap-1.5 rounded-lg glass px-2 py-1.5">
+    <div className="flex items-center gap-1.5 rounded-lg glass px-2 py-1.5 relative">
       <button
         onClick={handleCapture}
         disabled={busy}
@@ -82,6 +99,14 @@ export function CaptureActions({ onCaptureCurrent, onCaptureFullSet, onAnalyzeNo
         <span className="ml-1 rounded-full bg-[#0EA5E9]/15 px-2 py-0.5 text-[10px] font-bold text-[#0EA5E9]">
           {drafts.length} captured
         </span>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="absolute -bottom-9 left-0 flex items-center gap-1.5 rounded-lg bg-white/[0.08] backdrop-blur-md px-3 py-1.5 text-xs text-foreground shadow-lg z-50 animate-fade-in">
+          <CheckCircle className="h-3 w-3 text-emerald-400 shrink-0" />
+          {toast}
+        </div>
       )}
     </div>
   );

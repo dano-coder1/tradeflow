@@ -68,7 +68,6 @@ const DRAFT_KEY = "tf:analyzer-drafts";
 
 function saveDrafts(shots: CapturedShot[]) {
   try {
-    // Store only metadata (data URLs are large, limit to 6)
     sessionStorage.setItem(DRAFT_KEY, JSON.stringify(shots.slice(-6)));
   } catch {}
 }
@@ -78,6 +77,24 @@ function loadDrafts(): CapturedShot[] {
     const raw = sessionStorage.getItem(DRAFT_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }
+}
+
+// ── Capture helpers ─────────────────────────────────────────────────────────
+
+async function captureElementAsDataUrl(el: HTMLElement): Promise<string | null> {
+  try {
+    const html2canvas = (await import("html2canvas")).default;
+    const canvas = await html2canvas(el, {
+      backgroundColor: "#080808",
+      useCORS: true,
+      allowTaint: true,
+      scale: 1,
+      logging: false,
+    });
+    return canvas.toDataURL("image/png");
+  } catch {
+    return null;
+  }
 }
 
 // ── Main component ──────────────────────────────────────────────────────────
@@ -92,6 +109,7 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
   const [timeframe, setTimeframe] = useState<Timeframe>("1h");
   const [drafts, setDrafts] = useState<CapturedShot[]>(() => loadDrafts());
   const lwChartRef = useRef<LightweightChartHandle>(null);
+  const tvContainerRef = useRef<HTMLDivElement>(null);
 
   // ── Context builders ──────────────────────────────────────────────────────
 
@@ -107,7 +125,7 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
     return [];
   }, [symbol]);
 
-  const handleAnalyze = useCallback(async () => {
+  const handleCoach = useCallback(async () => {
     const drawings = await buildContext();
     const price = instrument?.price;
     const params = new URLSearchParams();
@@ -130,44 +148,52 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
 
   // ── Screenshot capture ────────────────────────────────────────────────────
 
-  const captureAdvancedChart = useCallback((): string | null => {
-    return lwChartRef.current?.takeScreenshot() ?? null;
-  }, []);
-
-  const captureCurrent = useCallback(async (): Promise<CapturedShot | null> => {
-    if (chartMode !== "advanced") {
-      // TradingView is an iframe — can't screenshot due to cross-origin
-      alert("Screenshot capture requires Advanced Chart mode. Switch to Advanced Chart first.");
-      return null;
+  const captureChart = useCallback(async (): Promise<string | null> => {
+    if (chartMode === "advanced") {
+      // Use lightweight-charts native screenshot API
+      return lwChartRef.current?.takeScreenshot() ?? null;
     }
-    const dataUrl = captureAdvancedChart();
-    if (!dataUrl) return null;
-    const shot: CapturedShot = {
-      dataUrl,
-      symbol,
-      timeframe,
-      chartMode: chartMode!,
-      timestamp: Date.now(),
-    };
+    if (chartMode === "tradingview" && tvContainerRef.current) {
+      // Use html2canvas for the TradingView wrapper
+      return captureElementAsDataUrl(tvContainerRef.current);
+    }
+    return null;
+  }, [chartMode]);
+
+  const addDraft = useCallback((shot: CapturedShot) => {
     setDrafts((prev) => {
       const next = [...prev, shot].slice(-6);
       saveDrafts(next);
       return next;
     });
+  }, []);
+
+  const captureCurrent = useCallback(async (): Promise<CapturedShot | null> => {
+    const dataUrl = await captureChart();
+    if (!dataUrl) return null;
+    const shot: CapturedShot = {
+      dataUrl,
+      symbol,
+      timeframe,
+      chartMode: chartMode ?? "unknown",
+      timestamp: Date.now(),
+    };
+    addDraft(shot);
     return shot;
-  }, [chartMode, captureAdvancedChart, symbol, timeframe]);
+  }, [captureChart, symbol, timeframe, chartMode, addDraft]);
 
   const captureFullSet = useCallback(async (): Promise<CapturedShot[]> => {
     if (chartMode !== "advanced") {
-      alert("Full set capture requires Advanced Chart mode.");
-      return [];
+      // For TradingView, capture only the current TF since we can't programmatically change TF
+      const shot = await captureCurrent();
+      return shot ? [shot] : [];
     }
     const shots: CapturedShot[] = [];
     for (const tf of TIMEFRAMES) {
       setTimeframe(tf);
-      // Wait for chart to re-render with new timeframe
-      await new Promise((r) => setTimeout(r, 1200));
-      const dataUrl = captureAdvancedChart();
+      // Wait for chart to re-render with new timeframe data
+      await new Promise((r) => setTimeout(r, 1500));
+      const dataUrl = lwChartRef.current?.takeScreenshot() ?? null;
       if (dataUrl) {
         shots.push({
           dataUrl,
@@ -178,26 +204,30 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
         });
       }
     }
-    setDrafts((prev) => {
-      const next = [...prev, ...shots].slice(-6);
-      saveDrafts(next);
-      return next;
-    });
+    if (shots.length > 0) {
+      setDrafts((prev) => {
+        const next = [...prev, ...shots].slice(-6);
+        saveDrafts(next);
+        return next;
+      });
+    }
     return shots;
-  }, [chartMode, captureAdvancedChart, symbol]);
+  }, [chartMode, captureCurrent, symbol]);
 
   const analyzeNow = useCallback(async () => {
-    let shots = drafts;
-    // If no drafts, capture current first
-    if (shots.length === 0) {
+    // Use existing drafts, or capture current chart first
+    let currentDrafts = loadDrafts();
+    if (currentDrafts.length === 0) {
       const shot = await captureCurrent();
-      if (shot) shots = [shot];
+      if (shot) {
+        currentDrafts = [shot];
+      }
     }
-    if (shots.length === 0) return;
-    // Store drafts for the analyzer page to pick up
-    saveDrafts(shots);
+    if (currentDrafts.length === 0) return;
+    // Ensure drafts are saved to sessionStorage before navigation
+    saveDrafts(currentDrafts);
     router.push("/dashboard/analyze");
-  }, [drafts, captureCurrent, router]);
+  }, [captureCurrent, router]);
 
   // ── Unsupported symbol ────────────────────────────────────────────────────
 
@@ -284,7 +314,7 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
           />
           <div className="flex items-center gap-1.5">
             <button
-              onClick={handleAnalyze}
+              onClick={handleCoach}
               className="inline-flex items-center gap-1.5 rounded-lg bg-[#8B5CF6]/15 px-3 py-1.5 text-xs font-semibold text-[#8B5CF6] transition-colors hover:bg-[#8B5CF6]/25"
             >
               <Brain className="h-3.5 w-3.5" />
@@ -305,7 +335,7 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
       {chartMode === null && <ChartSelector onSelect={setChartMode} />}
 
       {chartMode === "tradingview" && (
-        <div className="glass rounded-xl overflow-hidden" style={{ height: "calc(100vh - 120px)", width: "100%" }}>
+        <div ref={tvContainerRef} className="glass rounded-xl overflow-hidden" style={{ height: "calc(100vh - 120px)", width: "100%" }}>
           <TradingViewChart symbol={symbol} interval={TV_INTERVAL_MAP[timeframe]} />
         </div>
       )}
