@@ -94,7 +94,7 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
       </div>
 
       {/* TradingView chart */}
-      <div className="glass rounded-xl overflow-hidden" style={{ minHeight: 600 }}>
+      <div className="glass rounded-xl overflow-hidden" style={{ height: "calc(100vh - 120px)", width: "100%" }}>
         <TradingViewChart symbol={symbol} />
       </div>
     </div>
