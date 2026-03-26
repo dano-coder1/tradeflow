@@ -5,8 +5,8 @@ import { Plus } from "lucide-react";
 import { useMarketData } from "./useMarketData";
 import { Watchlist } from "./Watchlist";
 
-const DEFAULT_SYMBOLS = ["XAUUSD", "EURUSD", "GBPUSD", "BTCUSDT", "NAS100"];
-const STORAGE_KEY = "tf:markets-watchlist";
+const DEFAULT_SYMBOLS = ["XAUUSD", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY", "GBPJPY", "NAS100", "US30", "USOIL"];
+const STORAGE_KEY = "tf:markets-v2";
 
 function loadWatchlist(): string[] {
   if (typeof window === "undefined") return DEFAULT_SYMBOLS;
