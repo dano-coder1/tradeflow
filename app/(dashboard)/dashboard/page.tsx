@@ -8,6 +8,7 @@ import { StrategyCard } from "@/components/strategy/strategy-card";
 import { ActiveAlertsPanel } from "@/components/dashboard/active-alerts-panel";
 import { MT5ImportButton } from "@/components/trades/mt5-import-button";
 import { MyPatterns } from "@/components/trades/my-patterns";
+import { TradingCalendar } from "@/components/dashboard/trading-calendar";
 import { Plus, Brain } from "lucide-react";
 import { Trade } from "@/types/trade";
 import { TraderProfile } from "@/types/trader-profile";
@@ -78,8 +79,9 @@ export default async function DashboardPage() {
           <TradeList initialTrades={typedTrades} />
         </div>
 
-        {/* ── RIGHT (40%): Alerts + Coach + Strategy ── */}
+        {/* ── RIGHT (40%): Calendar + Alerts + Coach + Strategy ── */}
         <div className="flex flex-col gap-5">
+          <TradingCalendar />
           <ActiveAlertsPanel />
           <StrategyChat hasProfile={hasProfile} />
 
