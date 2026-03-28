@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Calendar, Clock, Shield, ShieldAlert, ShieldOff, ChevronDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Calendar, Shield, ShieldAlert, ShieldOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { Trade } from "@/types/trade";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -14,209 +15,283 @@ interface MarketEvent {
   currency: string;
 }
 
-type Session = "asia" | "london" | "newyork";
 type SafetyStatus = "safe" | "caution" | "avoid";
 
-// ── Session definitions (UTC hours) ──────────────────────────────────────────
-
-const SESSIONS: { key: Session; label: string; startUTC: number; endUTC: number }[] = [
-  { key: "asia", label: "Asia", startUTC: 0, endUTC: 9 },
-  { key: "london", label: "London", startUTC: 7, endUTC: 16 },
-  { key: "newyork", label: "New York", startUTC: 13, endUTC: 22 },
-];
-
-function getActiveSessions(nowUTC: number): Session[] {
-  return SESSIONS.filter((s) => {
-    if (s.startUTC < s.endUTC) return nowUTC >= s.startUTC && nowUTC < s.endUTC;
-    return nowUTC >= s.startUTC || nowUTC < s.endUTC;
-  }).map((s) => s.key);
+interface DayData {
+  date: string; // YYYY-MM-DD
+  trades: Trade[];
+  events: MarketEvent[];
+  pnl: number;
+  tradeCount: number;
+  wins: number;
+  losses: number;
+  safety: SafetyStatus;
 }
 
-function getNextSession(nowUTC: number): { label: string; startsIn: string } | null {
-  for (const s of SESSIONS) {
-    if (s.startUTC > nowUTC) {
-      const diff = s.startUTC - nowUTC;
-      return { label: s.label, startsIn: `${diff}h` };
-    }
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function dateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function todayKey(): string { return dateKey(new Date()); }
+
+function computeSafety(events: MarketEvent[]): SafetyStatus {
+  let hasHigh = false;
+  let hasMedium = false;
+  for (const e of events) {
+    if (e.impact === "high") hasHigh = true;
+    if (e.impact === "medium") hasMedium = true;
   }
-  // Wrap to next day
-  const first = SESSIONS[0];
-  const diff = 24 - nowUTC + first.startUTC;
-  return { label: first.label, startsIn: `${diff}h` };
+  if (hasHigh) return "caution";
+  if (hasMedium) return "safe";
+  return "safe";
 }
-
-// ── Time helpers ─────────────────────────────────────────────────────────────
 
 function formatTimeLocal(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
-function timeUntil(iso: string): string | null {
-  const diff = new Date(iso).getTime() - Date.now();
-  if (diff < 0) return null;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `in ${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  const rem = mins % 60;
-  return rem > 0 ? `in ${hrs}h ${rem}m` : `in ${hrs}h`;
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+// ── Props ────────────────────────────────────────────────────────────────────
+
+interface TradingCalendarProps {
+  trades?: Trade[];
 }
-
-// ── Safety logic ─────────────────────────────────────────────────────────────
-
-function computeSafety(events: MarketEvent[]): SafetyStatus {
-  const now = Date.now();
-  const thirtyMin = 30 * 60 * 1000;
-  const sixtyMin = 60 * 60 * 1000;
-
-  for (const e of events) {
-    const diff = new Date(e.time).getTime() - now;
-    if (diff < 0) continue; // past
-    if (e.impact === "high" && diff < thirtyMin) return "avoid";
-    if (e.impact === "high" && diff < sixtyMin) return "caution";
-    if (e.impact === "medium" && diff < thirtyMin) return "caution";
-  }
-  return "safe";
-}
-
-// ── Impact badge ─────────────────────────────────────────────────────────────
-
-function ImpactBadge({ impact }: { impact: string }) {
-  const cls = impact === "high"
-    ? "bg-red-500/15 text-red-400"
-    : impact === "medium"
-    ? "bg-amber-500/15 text-amber-400"
-    : "bg-white/[0.06] text-muted-foreground";
-  return <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase", cls)}>{impact}</span>;
-}
-
-// ── Filter options ───────────────────────────────────────────────────────────
-
-const IMPACT_FILTERS = ["all", "high"] as const;
-const CURRENCY_FILTERS = ["all", "USD", "EUR", "GBP", "JPY", "XAU"] as const;
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function TradingCalendar() {
+export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth());
   const [events, setEvents] = useState<MarketEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [impactFilter, setImpactFilter] = useState<string>("all");
-  const [currencyFilter, setCurrencyFilter] = useState<string>("all");
-  const [expanded, setExpanded] = useState(true);
-  const [, setTick] = useState(0);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   // Fetch events
   useEffect(() => {
     fetch("/api/calendar/market-events")
       .then((r) => r.json())
       .then((d) => setEvents(d.events ?? []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch(() => {});
   }, []);
 
-  // Tick every minute for countdowns
-  useEffect(() => {
-    const interval = setInterval(() => setTick((n) => n + 1), 60000);
-    return () => clearInterval(interval);
-  }, []);
+  // Group trades by date
+  const tradesByDate = useMemo(() => {
+    const map = new Map<string, Trade[]>();
+    for (const t of trades) {
+      const key = t.trade_date.slice(0, 10);
+      const arr = map.get(key) ?? [];
+      arr.push(t);
+      map.set(key, arr);
+    }
+    return map;
+  }, [trades]);
 
-  const nowUTC = new Date().getUTCHours();
-  const activeSessions = getActiveSessions(nowUTC);
-  const nextSession = getNextSession(nowUTC);
-  const safety = computeSafety(events);
+  // Group events by date
+  const eventsByDate = useMemo(() => {
+    const map = new Map<string, MarketEvent[]>();
+    for (const e of events) {
+      const key = e.time.slice(0, 10);
+      const arr = map.get(key) ?? [];
+      arr.push(e);
+      map.set(key, arr);
+    }
+    return map;
+  }, [events]);
 
-  const filtered = useMemo(() => {
-    return events.filter((e) => {
-      if (impactFilter !== "all" && e.impact !== impactFilter) return false;
-      if (currencyFilter !== "all" && e.currency !== currencyFilter) return false;
-      return true;
-    });
-  }, [events, impactFilter, currencyFilter]);
+  // Build calendar grid
+  const calendarDays = useMemo(() => {
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    // Monday = 0
+    let startOffset = firstDay.getDay() - 1;
+    if (startOffset < 0) startOffset = 6;
 
-  // Split into upcoming and past
-  const now = Date.now();
-  const upcoming = filtered.filter((e) => new Date(e.time).getTime() > now);
-  const past = filtered.filter((e) => new Date(e.time).getTime() <= now);
+    const days: (DayData | null)[] = [];
+
+    // Leading empty cells
+    for (let i = 0; i < startOffset; i++) days.push(null);
+
+    for (let d = 1; d <= lastDay.getDate(); d++) {
+      const dt = new Date(year, month, d);
+      const key = dateKey(dt);
+      const dayTrades = tradesByDate.get(key) ?? [];
+      const dayEvents = eventsByDate.get(key) ?? [];
+      const closedTrades = dayTrades.filter((t) => t.status === "closed");
+      const pnl = closedTrades.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
+
+      days.push({
+        date: key,
+        trades: dayTrades,
+        events: dayEvents,
+        pnl,
+        tradeCount: dayTrades.length,
+        wins: closedTrades.filter((t) => t.result === "win").length,
+        losses: closedTrades.filter((t) => t.result === "loss").length,
+        safety: computeSafety(dayEvents),
+      });
+    }
+
+    return days;
+  }, [year, month, tradesByDate, eventsByDate]);
+
+  const today = todayKey();
+  const selectedData = selectedDay ? calendarDays.find((d) => d?.date === selectedDay) ?? null : null;
+  const monthLabel = new Date(year, month).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+  function prevMonth() {
+    if (month === 0) { setYear((y) => y - 1); setMonth(11); }
+    else setMonth((m) => m - 1);
+  }
+
+  function nextMonth() {
+    if (month === 11) { setYear((y) => y + 1); setMonth(0); }
+    else setMonth((m) => m + 1);
+  }
 
   return (
     <div className="glass rounded-xl overflow-hidden">
       {/* Header */}
-      <button onClick={() => setExpanded((v) => !v)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-[#0EA5E9]" />
-          <span className="text-sm font-bold text-foreground">Active Trading Calendar</span>
+          <span className="text-sm font-bold text-foreground">Trading Calendar</span>
         </div>
-        <div className="flex items-center gap-2">
-          <SafetyBadge status={safety} />
-          <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+        <div className="flex items-center gap-1">
+          <button onClick={prevMonth} className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-white/[0.06]"><ChevronLeft className="h-3.5 w-3.5" /></button>
+          <span className="text-xs font-medium text-foreground min-w-[120px] text-center">{monthLabel}</span>
+          <button onClick={nextMonth} className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-white/[0.06]"><ChevronRight className="h-3.5 w-3.5" /></button>
         </div>
-      </button>
+      </div>
 
-      {expanded && (
-        <div className="px-4 pb-4 space-y-3 border-t border-white/[0.06] pt-3">
-          {/* Sessions row */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {SESSIONS.map((s) => {
-              const active = activeSessions.includes(s.key);
-              return (
-                <div key={s.key} className={cn("flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium", active ? "bg-emerald-500/15 text-emerald-400" : "bg-white/[0.04] text-muted-foreground")}>
-                  <span className={cn("h-1.5 w-1.5 rounded-full", active ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground/30")} />
-                  {s.label}
-                </div>
-              );
-            })}
-            {nextSession && activeSessions.length < 3 && (
-              <span className="text-[10px] text-muted-foreground/60">
-                Next: {nextSession.label} {nextSession.startsIn}
+      {/* Calendar grid */}
+      <div className="px-2 py-2">
+        {/* Weekday headers */}
+        <div className="grid grid-cols-7 mb-1">
+          {WEEKDAYS.map((w) => (
+            <div key={w} className="text-center text-[9px] font-bold text-muted-foreground/50 uppercase py-1">{w}</div>
+          ))}
+        </div>
+
+        {/* Day cells */}
+        <div className="grid grid-cols-7 gap-px">
+          {calendarDays.map((day, i) => {
+            if (!day) return <div key={`empty-${i}`} className="aspect-square" />;
+            const isToday = day.date === today;
+            const isSelected = day.date === selectedDay;
+            const dayNum = parseInt(day.date.split("-")[2], 10);
+            const hasEvents = day.events.length > 0;
+            const highEvents = day.events.filter((e) => e.impact === "high").length;
+            const medEvents = day.events.filter((e) => e.impact === "medium").length;
+
+            // PnL background tint
+            let bgClass = "";
+            if (day.tradeCount > 0) {
+              bgClass = day.pnl > 0 ? "bg-emerald-500/8" : day.pnl < 0 ? "bg-red-500/8" : "bg-white/[0.02]";
+            }
+
+            return (
+              <button
+                key={day.date}
+                onClick={() => setSelectedDay(isSelected ? null : day.date)}
+                className={cn(
+                  "relative aspect-square rounded-md flex flex-col items-center justify-center gap-0.5 transition-colors text-center",
+                  bgClass,
+                  isToday && "ring-1 ring-[#0EA5E9]/40",
+                  isSelected && "ring-1 ring-white/30 bg-white/[0.06]",
+                  !isSelected && "hover:bg-white/[0.04]",
+                )}
+              >
+                <span className={cn("text-[11px] font-medium", isToday ? "text-[#0EA5E9] font-bold" : "text-foreground")}>{dayNum}</span>
+
+                {/* Trade count + PnL indicator */}
+                {day.tradeCount > 0 && (
+                  <span className={cn("text-[8px] font-bold tabular-nums", day.pnl >= 0 ? "text-emerald-400/70" : "text-red-400/70")}>
+                    {day.pnl >= 0 ? "+" : ""}{day.pnl.toFixed(0)}
+                  </span>
+                )}
+
+                {/* Event dots */}
+                {hasEvents && (
+                  <div className="flex gap-0.5 absolute bottom-0.5">
+                    {highEvents > 0 && <span className="h-1 w-1 rounded-full bg-red-400" />}
+                    {medEvents > 0 && <span className="h-1 w-1 rounded-full bg-amber-400" />}
+                    {highEvents === 0 && medEvents === 0 && <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />}
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Day detail panel ──────────────────────────────────────── */}
+      {selectedData && (
+        <div className="border-t border-white/[0.06] px-4 py-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-foreground">
+                {new Date(selectedData.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
               </span>
-            )}
+              <SafetyBadge status={selectedData.safety} />
+            </div>
+            <button onClick={() => setSelectedDay(null)} className="rounded p-0.5 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
           </div>
 
-          {/* Filters */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-0.5 rounded bg-white/[0.04] p-0.5">
-              {IMPACT_FILTERS.map((f) => (
-                <button key={f} onClick={() => setImpactFilter(f)} className={cn("rounded px-2 py-0.5 text-[10px] font-medium capitalize transition-colors", impactFilter === f ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                  {f === "all" ? "All Impact" : "High Only"}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-0.5 rounded bg-white/[0.04] p-0.5">
-              {CURRENCY_FILTERS.map((f) => (
-                <button key={f} onClick={() => setCurrencyFilter(f)} className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors", currencyFilter === f ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                  {f === "all" ? "All" : f}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Events */}
-          {loading && (
-            <div className="flex items-center justify-center py-4">
-              <Clock className="h-4 w-4 text-muted-foreground animate-pulse" />
-              <span className="text-xs text-muted-foreground ml-2">Loading events...</span>
+          {/* Daily summary */}
+          {selectedData.tradeCount > 0 && (
+            <div className="flex items-center gap-3 text-[11px]">
+              <span className="text-muted-foreground">{selectedData.tradeCount} trade{selectedData.tradeCount !== 1 ? "s" : ""}</span>
+              {selectedData.wins > 0 && <span className="text-emerald-400">{selectedData.wins}W</span>}
+              {selectedData.losses > 0 && <span className="text-red-400">{selectedData.losses}L</span>}
+              <span className={cn("font-bold font-mono", selectedData.pnl >= 0 ? "text-emerald-400" : "text-red-400")}>
+                {selectedData.pnl >= 0 ? "+" : ""}{selectedData.pnl.toFixed(2)}
+              </span>
             </div>
           )}
 
-          {!loading && filtered.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-4">No events match your filters</p>
-          )}
-
-          {!loading && upcoming.length > 0 && (
+          {/* Trades list */}
+          {selectedData.trades.length > 0 && (
             <div className="space-y-1">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Upcoming</p>
-              {upcoming.map((e) => (
-                <EventRow key={e.id} event={e} />
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Trades</p>
+              {selectedData.trades.map((t) => (
+                <div key={t.id} className="flex items-center gap-2 rounded bg-white/[0.02] px-2 py-1 text-[11px]">
+                  <span className="font-mono font-bold text-foreground">{t.symbol}</span>
+                  <span className={cn("text-[10px] font-bold uppercase", t.direction === "long" ? "text-emerald-400" : "text-red-400")}>{t.direction}</span>
+                  {t.result && (
+                    <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-bold",
+                      t.result === "win" ? "bg-emerald-500/15 text-emerald-400" : t.result === "loss" ? "bg-red-500/15 text-red-400" : "bg-amber-500/15 text-amber-400"
+                    )}>{t.result}</span>
+                  )}
+                  {t.pnl != null && (
+                    <span className={cn("ml-auto font-mono text-[10px] font-bold", t.pnl >= 0 ? "text-emerald-400" : "text-red-400")}>
+                      {t.pnl >= 0 ? "+" : ""}{t.pnl.toFixed(2)}
+                    </span>
+                  )}
+                </div>
               ))}
             </div>
           )}
 
-          {!loading && past.length > 0 && (
+          {/* Events list */}
+          {selectedData.events.length > 0 && (
             <div className="space-y-1">
-              <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-wider">Earlier Today</p>
-              {past.map((e) => (
-                <EventRow key={e.id} event={e} muted />
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Events</p>
+              {selectedData.events.map((e) => (
+                <div key={e.id} className="flex items-center gap-2 rounded bg-white/[0.02] px-2 py-1 text-[11px]">
+                  <span className="font-mono text-muted-foreground w-10 shrink-0 text-[10px]">{formatTimeLocal(e.time)}</span>
+                  <span className="rounded bg-white/[0.06] px-1 py-0.5 text-[9px] font-bold text-muted-foreground shrink-0">{e.currency}</span>
+                  <span className="flex-1 text-foreground truncate">{e.title}</span>
+                  <ImpactDot impact={e.impact} />
+                </div>
               ))}
             </div>
+          )}
+
+          {selectedData.tradeCount === 0 && selectedData.events.length === 0 && (
+            <p className="text-[11px] text-muted-foreground text-center py-2">No trades or events</p>
           )}
         </div>
       )}
@@ -226,35 +301,25 @@ export function TradingCalendar() {
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
-function EventRow({ event, muted }: { event: MarketEvent; muted?: boolean }) {
-  const countdown = timeUntil(event.time);
-  return (
-    <div className={cn("flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs", muted ? "opacity-40" : "bg-white/[0.02]")}>
-      <span className="font-mono text-muted-foreground w-12 shrink-0 text-[11px]">{formatTimeLocal(event.time)}</span>
-      <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground shrink-0">{event.currency}</span>
-      <span className="flex-1 text-foreground truncate">{event.title}</span>
-      <ImpactBadge impact={event.impact} />
-      {countdown && !muted && (
-        <span className="text-[10px] text-muted-foreground shrink-0">{countdown}</span>
-      )}
-    </div>
-  );
+function ImpactDot({ impact }: { impact: string }) {
+  const cls = impact === "high" ? "bg-red-400" : impact === "medium" ? "bg-amber-400" : "bg-muted-foreground/30";
+  return <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", cls)} />;
 }
 
 function SafetyBadge({ status }: { status: SafetyStatus }) {
   if (status === "safe") return (
-    <div className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
-      <Shield className="h-3 w-3" /> Safe
-    </div>
+    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold text-emerald-400">
+      <Shield className="h-2.5 w-2.5" /> Safe
+    </span>
   );
   if (status === "caution") return (
-    <div className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-400">
-      <ShieldAlert className="h-3 w-3" /> Caution
-    </div>
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold text-amber-400">
+      <ShieldAlert className="h-2.5 w-2.5" /> Caution
+    </span>
   );
   return (
-    <div className="flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-400">
-      <ShieldOff className="h-3 w-3" /> Avoid
-    </div>
+    <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[9px] font-bold text-red-400">
+      <ShieldOff className="h-2.5 w-2.5" /> Avoid
+    </span>
   );
 }

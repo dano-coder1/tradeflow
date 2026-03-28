@@ -81,7 +81,7 @@ export default async function DashboardPage() {
 
         {/* ── RIGHT (40%): Calendar + Alerts + Coach + Strategy ── */}
         <div className="flex flex-col gap-5">
-          <TradingCalendar />
+          <TradingCalendar trades={typedTrades} />
           <ActiveAlertsPanel />
           <StrategyChat hasProfile={hasProfile} />
 
