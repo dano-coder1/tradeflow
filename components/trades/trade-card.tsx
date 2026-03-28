@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { Trade } from "@/types/trade";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Brain, Image as ImageIcon, Pencil, Trash2, X, Loader2 } from "lucide-react";
+import { Brain, Image as ImageIcon, Pencil, Trash2, X, Loader2, Stethoscope } from "lucide-react";
+import { AutopsyModal } from "./autopsy-modal";
 
 function directionColor(d: string) {
   return d === "long" ? "text-emerald-400" : "text-red-400";
@@ -220,7 +221,9 @@ export function TradeCard({ trade }: { trade: Trade }) {
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [autopsyOpen, setAutopsyOpen] = useState(false);
   const pnlPositive = trade.pnl != null && trade.pnl >= 0;
+  const canAutopsy = trade.status === "closed" || trade.result === "win" || trade.result === "loss" || trade.result === "breakeven";
 
   return (
     <>
@@ -243,6 +246,9 @@ export function TradeCard({ trade }: { trade: Trade }) {
             <div className="flex shrink-0 items-center gap-2">
               {trade.screenshot_url && (
                 <ImageIcon className="h-3.5 w-3.5 text-muted-foreground/40" />
+              )}
+              {trade.autopsy_json && (
+                <Stethoscope className="h-3.5 w-3.5 text-[#0EA5E9]" />
               )}
               {trade.ai_review_status === "done" && (
                 <Brain className="h-3.5 w-3.5 text-[#8B5CF6]" />
@@ -296,6 +302,15 @@ export function TradeCard({ trade }: { trade: Trade }) {
 
         {/* Action buttons — visible on hover */}
         <div className="absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 z-10">
+          {canAutopsy && (
+            <button
+              onClick={() => setAutopsyOpen(true)}
+              className="rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-[#0EA5E9]/10 hover:text-[#0EA5E9]"
+              title="Run Autopsy"
+            >
+              <Stethoscope className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button
             onClick={() => setEditOpen(true)}
             className="rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-white/[0.08] hover:text-foreground"
@@ -325,6 +340,13 @@ export function TradeCard({ trade }: { trade: Trade }) {
           trade={trade}
           onClose={() => setDeleteOpen(false)}
           onDeleted={() => router.refresh()}
+        />
+      )}
+      {autopsyOpen && (
+        <AutopsyModal
+          trade={trade}
+          onClose={() => setAutopsyOpen(false)}
+          onUpdated={() => router.refresh()}
         />
       )}
     </>

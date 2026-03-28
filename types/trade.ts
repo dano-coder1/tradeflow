@@ -29,6 +29,18 @@ export interface Trade {
   ai_review_status: AIReviewStatus;
   ai_review_summary: string | null;
   ai_review_json: Record<string, unknown> | null;
+  autopsy_json: AutopsyResult | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AutopsyResult {
+  verdict: string;
+  confidence: "high" | "medium" | "low";
+  what_went_well: string[];
+  what_went_wrong: string[];
+  key_mistake: string | null;
+  improvement_tip: string;
+  behavior_tags: string[];
+  generated_at: string;
 }

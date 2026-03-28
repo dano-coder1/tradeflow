@@ -7,6 +7,7 @@ import { StrategyChat } from "@/components/strategy/strategy-chat";
 import { StrategyCard } from "@/components/strategy/strategy-card";
 import { ActiveAlertsPanel } from "@/components/dashboard/active-alerts-panel";
 import { MT5ImportButton } from "@/components/trades/mt5-import-button";
+import { MyPatterns } from "@/components/trades/my-patterns";
 import { Plus, Brain } from "lucide-react";
 import { Trade } from "@/types/trade";
 import { TraderProfile } from "@/types/trader-profile";
@@ -64,6 +65,9 @@ export default async function DashboardPage() {
 
       {/* Stats bar — full width */}
       <StatsCards trades={typedTrades} />
+
+      {/* Patterns — from autopsy data */}
+      <MyPatterns trades={typedTrades} />
 
       {/* 2-column layout */}
       <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
