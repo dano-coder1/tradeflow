@@ -48,10 +48,12 @@ export async function POST(req: NextRequest) {
       message,
       history,
       imageUrls = [],
+      activeStrategy,
     }: {
       message: string;
       history: CoachMessage[];
       imageUrls?: string[];
+      activeStrategy?: { name: string; summary: string; rules: string[]; methodology: string };
     } = body;
 
     const hasImages = Array.isArray(imageUrls) && imageUrls.length > 0;
@@ -62,14 +64,33 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
 
-    const profile = await fetchUserProfile(user.id);
-    if (!profile)
+    // Build strategy context from active strategy (localStorage-based) or Supabase profile
+    let strategyContext = "";
+    if (activeStrategy) {
+      const parts = [
+        `=== ACTIVE STRATEGY: ${activeStrategy.name} ===`,
+        activeStrategy.summary,
+        `Methodology: ${activeStrategy.methodology}`,
+        "",
+        "Rules:",
+        ...activeStrategy.rules.map((r, i) => `${i + 1}. ${r}`),
+      ];
+      strategyContext = parts.join("\n");
+    } else {
+      const profile = await fetchUserProfile(user.id);
+      if (profile) {
+        strategyContext = formatStrategyContext(profile);
+      }
+    }
+
+    if (!strategyContext) {
       return NextResponse.json(
-        { error: "No strategy found. Save a strategy first." },
+        { error: "No strategy found. Select or create a strategy first." },
         { status: 404 }
       );
+    }
 
-    const systemContent = `${SYSTEM_PROMPT}\n\n${formatStrategyContext(profile)}`;
+    const systemContent = `${SYSTEM_PROMPT}\n\n${strategyContext}`;
 
     // Build user message — vision content when images are present
     const userContent: OpenAI.Chat.ChatCompletionContentPart[] = [

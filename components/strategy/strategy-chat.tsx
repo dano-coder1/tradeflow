@@ -1,13 +1,16 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { playSound } from "@/lib/sounds";
 import { Brain, Send, CornerDownLeft, Zap, Paperclip, X, Play } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { CoachMessage } from "@/app/api/ai/coach-chat/route";
+import { getActiveStrategy, type SavedStrategy } from "@/lib/strategy-store";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -94,6 +97,16 @@ interface Props {
 }
 
 export function StrategyChat({ hasProfile }: Props) {
+  const searchParams = useSearchParams();
+  const [activeStrategy, setActiveStrategy] = useState<SavedStrategy | null>(null);
+
+  // Load active strategy from shared store on mount
+  useEffect(() => {
+    setActiveStrategy(getActiveStrategy());
+  }, []);
+
+  const hasStrategy = hasProfile || activeStrategy !== null;
+
   // displayHistory drives rendering (includes attachment thumbnails)
   const [displayHistory, setDisplayHistory] = useState<DisplayMessage[]>([]);
   // apiHistory is the text-only list sent to the API as conversation context
@@ -104,9 +117,33 @@ export function StrategyChat({ hasProfile }: Props) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoSent, setAutoSent] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-send initial context from chart page
+  useEffect(() => {
+    if (autoSent || !hasStrategy) return;
+    const sym = searchParams.get("symbol");
+    if (!sym) return;
+    setAutoSent(true);
+
+    const price = searchParams.get("price");
+    const context = searchParams.get("context");
+    const chartMode = searchParams.get("chartMode");
+
+    const parts = [`Analyze ${sym} for me.`];
+    if (price) parts.push(`Current price: ${price}.`);
+    if (chartMode) parts.push(`Chart mode: ${chartMode}.`);
+    if (context) parts.push(context);
+    parts.push("Based on my strategy, is this a good setup? What should I watch for?");
+
+    const msg = parts.join(" ");
+    // Use setTimeout to let the component fully mount before sending
+    setTimeout(() => send(msg), 300);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasStrategy, autoSent]);
 
   // URLs auto-detected from the typed/pasted message text
   const detectedUrls = useMemo(() => detectMediaInText(input), [input]);
@@ -215,7 +252,17 @@ export function StrategyChat({ hasProfile }: Props) {
       const res = await fetch("/api/ai/strategy-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: apiText, history: apiHistory, imageUrls }),
+        body: JSON.stringify({
+          message: apiText,
+          history: apiHistory,
+          imageUrls,
+          activeStrategy: activeStrategy ? {
+            name: activeStrategy.name,
+            summary: activeStrategy.summary,
+            rules: activeStrategy.rules,
+            methodology: activeStrategy.methodologyTags.join(", "),
+          } : undefined,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to get response");
@@ -256,15 +303,18 @@ export function StrategyChat({ hasProfile }: Props) {
             <Brain className="h-4 w-4 text-primary" />
           </div>
           <div>
-            <p className="text-sm font-semibold">Strategy Coach</p>
+            <p className="text-sm font-semibold">
+              Strategy Coach
+              {activeStrategy && <span className="text-muted-foreground font-normal"> · {activeStrategy.name}</span>}
+            </p>
             <p className="text-xs text-muted-foreground">
-              {hasProfile
+              {hasStrategy
                 ? "Ask anything · paste charts · drop links"
-                : "Save a strategy to unlock"}
+                : "Select a strategy to unlock"}
             </p>
           </div>
         </div>
-        {hasProfile && (
+        {hasStrategy && (
           <div className="flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 text-xs font-medium text-success">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
             Active
@@ -273,25 +323,27 @@ export function StrategyChat({ hasProfile }: Props) {
       </div>
 
       <CardContent className="flex flex-1 flex-col p-0">
-        {/* Empty state: no profile */}
-        {!hasProfile && (
+        {/* Empty state: no strategy */}
+        {!hasStrategy && (
           <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted/50">
               <Brain className="h-5 w-5 text-muted-foreground/30" />
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">
-                No strategy saved yet
+                No active strategy selected
               </p>
               <p className="mt-1 text-xs text-muted-foreground/60">
-                Define your trading rules and save them above to unlock your
-                personal strategy coach.
+                Select or create a strategy to unlock your personal coach.
               </p>
+              <Link href="/dashboard/strategy" className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors">
+                Go to Strategy
+              </Link>
             </div>
           </div>
         )}
 
-        {hasProfile && (
+        {hasStrategy && (
           <div className="flex flex-1 flex-col">
             {/* Quick actions — only when no messages yet */}
             {displayHistory.length === 0 && (
