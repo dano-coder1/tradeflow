@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "imageBase64 is required" }, { status: 400 });
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4.1",
       messages: [
         {
           role: "user",

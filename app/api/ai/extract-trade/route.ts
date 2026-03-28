@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "imageUrl required" }, { status: 400 });
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4.1",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {

@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4.1",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: USER_PROMPT_TEMPLATE(text.trim()) },
