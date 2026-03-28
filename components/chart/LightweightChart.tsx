@@ -26,26 +26,6 @@ import {
   generateSyntheticVolume,
 } from "./indicators";
 
-// ── Synthetic OHLC generator centered around a real price ────────────────────
-
-function generateSyntheticOHLC(basePrice: number, count: number, intervalSec: number = 3600): CandlestickData<Time>[] {
-  const data: CandlestickData<Time>[] = [];
-  const tfFactor = Math.sqrt(intervalSec / 3600);
-  const volatility = basePrice * 0.003 * tfFactor;
-  let close = basePrice;
-  const now = Math.floor(Date.now() / 1000);
-
-  for (let i = count; i > 0; i--) {
-    const time = (now - i * intervalSec) as Time;
-    const open = close + (Math.random() - 0.5) * volatility;
-    const high = Math.max(open, close) + Math.random() * volatility * 0.8;
-    const low = Math.min(open, close) - Math.random() * volatility * 0.8;
-    close = open + (Math.random() - 0.5) * volatility * 1.2;
-    data.push({ time, open, high, low, close });
-  }
-  return data;
-}
-
 // ── SMC settings persistence ────────────────────────────────────────────────
 
 const SMC_SETTINGS_KEY = "tf:smc-settings";
@@ -64,7 +44,7 @@ function saveSmcSettings(s: SmcSettings) {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-import { INTERVAL_SECONDS, type Timeframe } from "./TimeframeBar";
+import { type Timeframe } from "./TimeframeBar";
 import React from "react";
 
 interface LightweightChartProps {
@@ -113,6 +93,8 @@ export const LightweightChart = React.forwardRef<LightweightChartHandle, Lightwe
   const [indicators, setIndicators] = useState<IndicatorVisibility>({ ...DEFAULT_INDICATORS });
   const [smcSettings, setSmcSettings] = useState<SmcSettings>(() => loadSmcSettings());
   const [smcData, setSmcData] = useState<SmcResult | null>(null);
+  const [loadingCandles, setLoadingCandles] = useState(true);
+  const [candleError, setCandleError] = useState<string | null>(null);
   const [, setRenderTick] = useState(0);
 
   // Persist SMC settings changes
@@ -208,24 +190,36 @@ export const LightweightChart = React.forwardRef<LightweightChartHandle, Lightwe
     seriesRef.current = series;
     indicatorSeriesRef.current = {};
 
-    const intervalSec = INTERVAL_SECONDS[timeframe] ?? 3600;
-    fetch(`/api/prices/${encodeURIComponent(symbol)}`)
-      .then((r) => (r.ok ? r.json() : null))
+    setLoadingCandles(true);
+    setCandleError(null);
+
+    fetch(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then((json) => {
-        const realPrice = json?.price ?? 100;
-        const candles = generateSyntheticOHLC(realPrice, 200, intervalSec);
+        if (json.error || !json.candles || json.candles.length === 0) {
+          throw new Error(json.error ?? "No candle data");
+        }
+        const candles = json.candles.map((c: { time: number; open: number; high: number; low: number; close: number }) => ({
+          time: c.time as Time,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+        }));
         candleDataRef.current = candles;
         series.setData(candles);
         chart.timeScale().fitContent();
         computeSmc(candles);
+        setLoadingCandles(false);
         setRenderTick((n) => n + 1);
       })
-      .catch(() => {
-        const candles = generateSyntheticOHLC(100, 200, intervalSec);
-        candleDataRef.current = candles;
-        series.setData(candles);
-        chart.timeScale().fitContent();
-        computeSmc(candles);
+      .catch((err) => {
+        console.error("[chart] candle fetch error:", err);
+        setCandleError(err.message ?? "Data unavailable");
+        setLoadingCandles(false);
       });
 
     chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
@@ -450,7 +444,23 @@ export const LightweightChart = React.forwardRef<LightweightChartHandle, Lightwe
           coordToPrice={coordToPrice}
           priceToCoord={priceToCoord}
         />
-        {loadingDrawings && (
+        {loadingCandles && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-30">
+            <div className="flex flex-col items-center gap-2">
+              <div className="h-5 w-5 border-2 border-[#0EA5E9]/30 border-t-[#0EA5E9] rounded-full animate-spin" />
+              <span className="text-xs text-muted-foreground">Loading {symbol} {timeframe}...</span>
+            </div>
+          </div>
+        )}
+        {candleError && !loadingCandles && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-30">
+            <div className="text-center space-y-1">
+              <p className="text-sm font-medium text-foreground">Data unavailable</p>
+              <p className="text-xs text-muted-foreground">{candleError}</p>
+            </div>
+          </div>
+        )}
+        {loadingDrawings && !loadingCandles && !candleError && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/30 z-30">
             <span className="text-xs text-muted-foreground">Loading drawings...</span>
           </div>
