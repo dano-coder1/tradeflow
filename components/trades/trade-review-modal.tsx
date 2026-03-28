@@ -37,30 +37,27 @@ function confidenceColor(c: string): string {
 
 interface TradeReviewModalProps {
   trade: Trade;
-  defaultMode?: "review" | "autopsy";
   onClose: () => void;
   onUpdated: () => void;
 }
 
-export function TradeReviewModal({ trade, defaultMode = "review", onClose, onUpdated }: TradeReviewModalProps) {
+export function TradeReviewModal({ trade, onClose, onUpdated }: TradeReviewModalProps) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TradeReview | null>(trade.autopsy_json ?? null);
   const [error, setError] = useState("");
-  const [mode, setMode] = useState<"review" | "autopsy">(result?.mode ?? defaultMode);
 
-  async function runReview(reviewMode: "review" | "autopsy") {
+  async function runReview() {
     setLoading(true);
     setError("");
     try {
       const res = await fetch("/api/trades/review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tradeId: trade.id, mode: reviewMode }),
+        body: JSON.stringify({ tradeId: trade.id }),
       });
       const data = await res.json();
       if (data.review) {
         setResult(data.review);
-        setMode(reviewMode);
         onUpdated();
       } else {
         setError(data.error ?? "Review failed");
@@ -73,7 +70,7 @@ export function TradeReviewModal({ trade, defaultMode = "review", onClose, onUpd
 
   // Auto-run if no existing result
   useEffect(() => {
-    if (!result && !loading && !error) runReview(mode);
+    if (!result && !loading && !error) runReview();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -86,30 +83,9 @@ export function TradeReviewModal({ trade, defaultMode = "review", onClose, onUpd
             <h3 className="text-sm font-bold text-foreground">Trade Review</h3>
             <p className="text-[11px] text-muted-foreground">{trade.symbol} · {trade.direction.toUpperCase()} · {trade.trade_date}</p>
           </div>
-          <div className="flex items-center gap-2">
-            {/* Mode toggle */}
-            <div className="flex rounded-md bg-white/[0.04] p-0.5">
-              <button
-                onClick={() => { if (!loading) { setMode("review"); runReview("review"); } }}
-                className={cn("rounded px-2 py-0.5 text-[10px] font-medium transition-colors",
-                  mode === "review" ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                Review
-              </button>
-              <button
-                onClick={() => { if (!loading) { setMode("autopsy"); runReview("autopsy"); } }}
-                className={cn("rounded px-2 py-0.5 text-[10px] font-medium transition-colors",
-                  mode === "autopsy" ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                Autopsy
-              </button>
-            </div>
-            <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+          <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
         {/* Body */}
@@ -118,9 +94,7 @@ export function TradeReviewModal({ trade, defaultMode = "review", onClose, onUpd
           {loading && (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
               <Loader2 className="h-8 w-8 text-[#0EA5E9] animate-spin" />
-              <p className="text-sm font-medium text-foreground">
-                {mode === "review" ? "Reviewing your trade..." : "Running deep autopsy..."}
-              </p>
+              <p className="text-sm font-medium text-foreground">Reviewing your trade...</p>
               <p className="text-[11px] text-muted-foreground">Analyzing entry, exit, and execution</p>
             </div>
           )}
@@ -130,7 +104,7 @@ export function TradeReviewModal({ trade, defaultMode = "review", onClose, onUpd
             <div className="text-center py-8 space-y-3">
               <AlertTriangle className="h-8 w-8 text-amber-400 mx-auto" />
               <p className="text-sm text-foreground">{error}</p>
-              <button onClick={() => runReview(mode)} className="rounded-lg bg-white/[0.06] px-4 py-2 text-xs text-foreground hover:bg-white/[0.1]">Retry</button>
+              <button onClick={runReview} className="rounded-lg bg-white/[0.06] px-4 py-2 text-xs text-foreground hover:bg-white/[0.1]">Retry</button>
             </div>
           )}
 
@@ -231,9 +205,9 @@ export function TradeReviewModal({ trade, defaultMode = "review", onClose, onUpd
               {/* Footer: timestamp + re-run */}
               <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
                 <p className="text-[10px] text-muted-foreground">
-                  {result.mode === "autopsy" ? "Autopsy" : "Review"} · {new Date(result.generated_at).toLocaleString()}
+                  {new Date(result.generated_at).toLocaleString()}
                 </p>
-                <button onClick={() => runReview(mode)} disabled={loading} className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-white/[0.06] disabled:opacity-50">
+                <button onClick={runReview} disabled={loading} className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-white/[0.06] disabled:opacity-50">
                   <RefreshCw className="h-3 w-3" />
                   Re-run
                 </button>

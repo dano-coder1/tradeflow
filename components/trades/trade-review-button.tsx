@@ -44,7 +44,6 @@ export function TradeReviewButton({ trade }: { trade: Trade }) {
       {open && (
         <TradeReviewModal
           trade={trade}
-          defaultMode={hasReview ? (trade.autopsy_json!.mode ?? "review") : "review"}
           onClose={() => setOpen(false)}
           onUpdated={() => router.refresh()}
         />

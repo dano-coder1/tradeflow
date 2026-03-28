@@ -9,25 +9,20 @@ liquidity_not_taken, entered_before_bos, revenge_trade, bad_rr,
 overtrading, good_patience, correct_invalidation, clean_execution,
 sl_too_tight, tp_too_early, wrong_bias, good_risk_management`;
 
-function buildPrompt(mode: "review" | "autopsy"): string {
-  const depth = mode === "review"
-    ? "Provide a concise trade review. Keep it brief — 1-2 items per section max."
-    : "Perform a thorough post-trade autopsy. Be detailed — up to 3 items per section.";
-
-  return `You are an expert trading coach analyzing a completed trade.
-${depth}
+const SYSTEM_PROMPT = `You are an expert trading coach analyzing a completed trade.
+Provide a thorough trade review with up to 3 items per section.
 Analyze objectively and specifically. Reference the actual numbers provided.
 Do not be generic. If important context is missing, say so and lower confidence.
 Do not invent reasons not supported by the provided trade data.
 
 Return ONLY valid JSON matching this schema:
 {
-  "mode": "${mode}",
+  "mode": "review",
   "verdict": "Win/Loss/Breakeven — one sentence explaining why",
   "confidence": "high" | "medium" | "low",
   "summary": "2-3 sentence overview of the trade quality",
-  "what_went_well": ["positives"],
-  "what_went_wrong": ["mistakes"],
+  "what_went_well": ["positives — up to 3"],
+  "what_went_wrong": ["mistakes — up to 3"],
   "key_mistake": "single biggest mistake or null if clean trade",
   "improvement_tip": "one specific actionable tip for next time",
   "behavior_tags": ["tags from allowed list"]
@@ -37,7 +32,6 @@ Allowed behavior_tags:
 ${BEHAVIOR_TAGS}
 
 Return ONLY valid JSON, no markdown fences.`;
-}
 
 function buildTradeContext(trade: Record<string, unknown>): string {
   const parts: string[] = [
@@ -68,7 +62,7 @@ export async function POST(req: NextRequest) {
     if (userError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const { tradeId, mode = "review" } = body as { tradeId: string; mode?: "review" | "autopsy" };
+    const { tradeId } = body as { tradeId: string };
     if (!tradeId) return NextResponse.json({ error: "tradeId required" }, { status: 400 });
 
     const { data: trade, error: tradeError } = await supabase
@@ -81,10 +75,9 @@ export async function POST(req: NextRequest) {
     if (tradeError || !trade) return NextResponse.json({ error: "Trade not found" }, { status: 404 });
 
     const tradeContext = buildTradeContext(trade);
-    const systemPrompt = buildPrompt(mode);
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: SYSTEM_PROMPT },
     ];
 
     // Use vision if screenshot exists
@@ -103,7 +96,7 @@ export async function POST(req: NextRequest) {
     const completion = await openai.chat.completions.create({
       model: "gpt-4.1",
       messages,
-      max_tokens: mode === "review" ? 500 : 800,
+      max_tokens: 800,
       temperature: 0.3,
     });
 
@@ -117,7 +110,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Ensure required fields
-    result.mode = mode;
+    result.mode = "review";
     result.generated_at = new Date().toISOString();
 
     // Save to database — unified field
