@@ -2,7 +2,7 @@
 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { tradeFormSchema, TradeFormValues, parseNum } from "@/validators/trade";
 import { ExtractTradeResponse } from "@/types/ai";
@@ -22,6 +22,7 @@ import { ScreenshotUpload } from "./screenshot-upload";
 
 export function TradeForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -35,7 +36,9 @@ export function TradeForm() {
     resolver: zodResolver(tradeFormSchema),
     defaultValues: {
       direction: "long",
-      symbol: "",
+      symbol: searchParams.get("symbol") ?? "",
+      notes: searchParams.get("notes") ?? "",
+      tag: searchParams.get("tag") ?? "",
     },
   });
 

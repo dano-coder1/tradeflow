@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { TradeForm } from "@/components/trades/trade-form";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -18,7 +19,9 @@ export default function NewTradePage() {
       </div>
 
       <h1 className="text-2xl font-bold">Add Trade</h1>
-      <TradeForm />
+      <Suspense>
+        <TradeForm />
+      </Suspense>
     </div>
   );
 }

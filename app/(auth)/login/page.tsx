@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,13 +9,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClientSupabaseClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Show errors from OAuth callback redirects
+  useEffect(() => {
+    const urlError = searchParams.get("error");
+    if (urlError) setError(urlError);
+  }, [searchParams]);
 
   async function handleGoogle() {
     setError(null);
@@ -117,5 +124,13 @@ export default function LoginPage() {
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }
