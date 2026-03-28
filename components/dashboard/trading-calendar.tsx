@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { ChevronLeft, ChevronRight, X, Calendar, Shield, ShieldAlert, ShieldOff } from "lucide-react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { ChevronLeft, ChevronRight, X, Calendar, Shield, ShieldAlert, ShieldOff, StickyNote } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Trade } from "@/types/trade";
 
@@ -54,6 +54,21 @@ function formatTimeLocal(iso: string): string {
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+// ── Day notes storage ────────────────────────────────────────────────────────
+
+const NOTES_KEY = "tf:calendar-notes";
+
+function loadAllNotes(): Record<string, string> {
+  try { const r = localStorage.getItem(NOTES_KEY); return r ? JSON.parse(r) : {}; } catch { return {}; }
+}
+
+function saveNote(date: string, text: string) {
+  const all = loadAllNotes();
+  if (text.trim()) all[date] = text.trim();
+  else delete all[date];
+  try { localStorage.setItem(NOTES_KEY, JSON.stringify(all)); } catch {}
+}
+
 // ── Props ────────────────────────────────────────────────────────────────────
 
 interface TradingCalendarProps {
@@ -68,6 +83,9 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
   const [month, setMonth] = useState(now.getMonth());
   const [events, setEvents] = useState<MarketEvent[]>([]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>(() => loadAllNotes());
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteText, setNoteText] = useState("");
 
   // Fetch events
   useEffect(() => {
@@ -139,6 +157,21 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
 
   const today = todayKey();
   const selectedData = selectedDay ? calendarDays.find((d) => d?.date === selectedDay) ?? null : null;
+
+  // Sync note text when selected day changes
+  useEffect(() => {
+    if (selectedDay) {
+      setNoteText(notes[selectedDay] ?? "");
+      setEditingNote(false);
+    }
+  }, [selectedDay]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSaveNote = useCallback(() => {
+    if (!selectedDay) return;
+    saveNote(selectedDay, noteText);
+    setNotes(loadAllNotes());
+    setEditingNote(false);
+  }, [selectedDay, noteText]);
   const monthLabel = new Date(year, month).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   function prevMonth() {
@@ -183,6 +216,7 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
             const isSelected = day.date === selectedDay;
             const dayNum = parseInt(day.date.split("-")[2], 10);
             const hasEvents = day.events.length > 0;
+            const hasNote = !!notes[day.date];
             const highEvents = day.events.filter((e) => e.impact === "high").length;
             const medEvents = day.events.filter((e) => e.impact === "medium").length;
 
@@ -213,12 +247,13 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
                   </span>
                 )}
 
-                {/* Event dots */}
-                {hasEvents && (
+                {/* Indicator dots */}
+                {(hasEvents || hasNote) && (
                   <div className="flex gap-0.5 absolute bottom-0.5">
+                    {hasNote && <span className="h-1 w-1 rounded-full bg-[#0EA5E9]" />}
                     {highEvents > 0 && <span className="h-1 w-1 rounded-full bg-red-400" />}
                     {medEvents > 0 && <span className="h-1 w-1 rounded-full bg-amber-400" />}
-                    {highEvents === 0 && medEvents === 0 && <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />}
+                    {!hasNote && highEvents === 0 && medEvents === 0 && <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />}
                   </div>
                 )}
               </button>
@@ -290,9 +325,39 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
             </div>
           )}
 
-          {selectedData.tradeCount === 0 && selectedData.events.length === 0 && (
-            <p className="text-[11px] text-muted-foreground text-center py-2">No trades or events</p>
-          )}
+          {/* Day note */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                <StickyNote className="h-3 w-3" /> Note
+              </p>
+              {!editingNote && (
+                <button onClick={() => setEditingNote(true)} className="text-[10px] text-[#0EA5E9] hover:underline">
+                  {notes[selectedData.date] ? "Edit" : "Add"}
+                </button>
+              )}
+            </div>
+            {editingNote ? (
+              <div className="space-y-1.5">
+                <textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="Reflection, mood, lessons learned..."
+                  rows={3}
+                  autoFocus
+                  className="w-full rounded-lg bg-white/[0.04] border border-white/[0.08] px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-[#0EA5E9]/40 resize-none"
+                />
+                <div className="flex gap-1.5">
+                  <button onClick={() => { setEditingNote(false); setNoteText(notes[selectedData.date] ?? ""); }} className="rounded px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-white/[0.06]">Cancel</button>
+                  <button onClick={handleSaveNote} className="rounded px-2 py-0.5 text-[10px] font-medium text-[#0EA5E9] bg-[#0EA5E9]/10 hover:bg-[#0EA5E9]/20">Save</button>
+                </div>
+              </div>
+            ) : notes[selectedData.date] ? (
+              <p className="text-[11px] text-foreground leading-relaxed whitespace-pre-wrap bg-white/[0.02] rounded-lg px-2.5 py-1.5 border border-white/[0.04]">{notes[selectedData.date]}</p>
+            ) : (
+              <p className="text-[10px] text-muted-foreground/50 italic">No note for this day</p>
+            )}
+          </div>
         </div>
       )}
     </div>
