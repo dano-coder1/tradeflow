@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { SmcResult } from "@/lib/smc-engine";
 import type { Time } from "lightweight-charts";
 import type { SmcSettings } from "./ChartToolbar";
@@ -17,9 +17,14 @@ export function SmcOverlay({ smcData, settings, times, timeToCoord, priceToCoord
   const svgRef = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
-  useEffect(() => {
-    const el = svgRef.current?.parentElement;
+  // Use useLayoutEffect to set initial size BEFORE paint, then ResizeObserver
+  // for dynamic updates. This prevents the first-frame w=0 rendering bug.
+  useLayoutEffect(() => {
+    const svg = svgRef.current;
+    const el = svg?.parentElement;
     if (!el) return;
+    // Synchronous initial measurement
+    setSize({ w: el.clientWidth, h: el.clientHeight });
     const ro = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
       setSize({ w: width, h: height });
@@ -30,13 +35,13 @@ export function SmcOverlay({ smcData, settings, times, timeToCoord, priceToCoord
 
   if (!smcData) return null;
 
-  // Check if anything is enabled
   const anyVisible = settings.showBosChoch || settings.showOrderBlocks || settings.showFvg
     || settings.showPremiumDiscount || settings.showPdhl || settings.showPwhl || settings.showPmhl;
   if (!anyVisible) return null;
 
   const { structures, orderBlocks, fvgs, previousLevels, premiumDiscount } = smcData;
-  const w = size.w;
+  // Fallback: read width from DOM if ResizeObserver hasn't fired yet
+  const w = size.w || svgRef.current?.parentElement?.clientWidth || 0;
 
   function tx(index: number): number | null {
     if (index < 0 || index >= times.length) return null;
@@ -67,6 +72,19 @@ export function SmcOverlay({ smcData, settings, times, timeToCoord, priceToCoord
     if (previousLevels.pml != null) levelLines.push({ price: previousLevels.pml, label: "PML", color: "#a855f7", dash: "10 4" });
   }
 
+  // Debug: log level line rendering state
+  if (settings.showPdhl || settings.showPwhl || settings.showPmhl) {
+    console.log("[SMC Overlay] level lines →", {
+      w,
+      levelLines: levelLines.map((l) => ({
+        label: l.label,
+        price: l.price,
+        y: py(l.price),
+      })),
+      previousLevels,
+    });
+  }
+
   return (
     <svg
       ref={svgRef}
@@ -84,13 +102,9 @@ export function SmcOverlay({ smcData, settings, times, timeToCoord, priceToCoord
         const op = settings.zoneOpacity;
         return (
           <g>
-            {/* Premium zone (upper half) */}
             <rect x={0} y={topY} width={w} height={Math.abs(yEq - yHigh)} fill={`rgba(248, 113, 113, ${op})`} />
-            {/* Discount zone (lower half) */}
             <rect x={0} y={midY} width={w} height={Math.abs(yLow - yEq)} fill={`rgba(52, 211, 153, ${op})`} />
-            {/* Equilibrium line */}
             <line x1={0} y1={yEq} x2={w} y2={yEq} stroke="rgba(255,255,255,0.25)" strokeWidth={1} strokeDasharray="4 4" />
-            {/* Labels */}
             <text x={w - 60} y={topY + 12} fill="rgba(248, 113, 113, 0.6)" fontSize={8} fontFamily="monospace" fontWeight="bold">Premium</text>
             <text x={w - 70} y={yEq + 4} fill="rgba(255,255,255,0.35)" fontSize={8} fontFamily="monospace">Equilibrium</text>
             <text x={w - 60} y={Math.max(yEq, yLow) - 4} fill="rgba(52, 211, 153, 0.6)" fontSize={8} fontFamily="monospace" fontWeight="bold">Discount</text>
@@ -101,7 +115,7 @@ export function SmcOverlay({ smcData, settings, times, timeToCoord, priceToCoord
       {/* ── Previous period levels ────────────────────────────────────── */}
       {levelLines.map((lv, i) => {
         const y = py(lv.price);
-        if (y === null) return null;
+        if (y === null || w <= 0) return null;
         return (
           <g key={`level-${i}`}>
             <line x1={0} y1={y} x2={w} y2={y} stroke={lv.color} strokeWidth={1} strokeDasharray={lv.dash} opacity={0.5} />

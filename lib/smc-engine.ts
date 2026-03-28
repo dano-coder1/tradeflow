@@ -204,53 +204,98 @@ export function detectFVGs(bars: OhlcBar[]): FairValueGap[] {
 }
 
 // ── Previous period levels ───────────────────────────────────────────────────
+// Groups candles by UTC day/week/month from the actual timestamps rather than
+// assuming calendar boundaries exist in the dataset. This handles short
+// timeframes (1m, 5m) where only a few hours of data are loaded.
+
+function utcDayKey(sec: number): string {
+  const d = new Date(sec * 1000);
+  return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
+}
+
+function utcWeekKey(sec: number): string {
+  // ISO week: Monday-based. Compute the Monday of the week.
+  const d = new Date(sec * 1000);
+  const day = d.getUTCDay();
+  const mondayOffset = day === 0 ? 6 : day - 1;
+  const monday = new Date(d.getTime() - mondayOffset * 86_400_000);
+  return `${monday.getUTCFullYear()}-W${monday.getUTCMonth()}-${monday.getUTCDate()}`;
+}
+
+function utcMonthKey(sec: number): string {
+  const d = new Date(sec * 1000);
+  return `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+}
+
+interface GroupedHL {
+  high: number;
+  low: number;
+}
+
+function groupHighLow(
+  times: number[],
+  bars: OhlcBar[],
+  keyFn: (sec: number) => string,
+): Map<string, GroupedHL> {
+  const groups = new Map<string, GroupedHL>();
+  for (let i = 0; i < times.length; i++) {
+    const k = keyFn(times[i]);
+    const existing = groups.get(k);
+    if (existing) {
+      if (bars[i].high > existing.high) existing.high = bars[i].high;
+      if (bars[i].low < existing.low) existing.low = bars[i].low;
+    } else {
+      groups.set(k, { high: bars[i].high, low: bars[i].low });
+    }
+  }
+  return groups;
+}
+
+function previousGroupHL(
+  times: number[],
+  bars: OhlcBar[],
+  keyFn: (sec: number) => string,
+): GroupedHL | null {
+  const groups = groupHighLow(times, bars, keyFn);
+  // Keys are insertion-ordered; the last key is the current period.
+  // We want the second-to-last (the previous completed period).
+  const keys = Array.from(groups.keys());
+  if (keys.length < 2) return null; // not enough periods
+  return groups.get(keys[keys.length - 2]) ?? null;
+}
 
 export function detectPreviousLevels(times: number[], bars: OhlcBar[]): PreviousLevels {
   if (bars.length === 0 || times.length === 0) return {};
 
-  const lastTime = times[times.length - 1];
-  const lastDate = new Date(lastTime * 1000);
-
-  function barsInRange(startSec: number, endSec: number): OhlcBar[] {
-    const result: OhlcBar[] = [];
-    for (let i = 0; i < times.length; i++) {
-      if (times[i] >= startSec && times[i] < endSec) result.push(bars[i]);
-    }
-    return result;
-  }
-
-  function highLow(subset: OhlcBar[]): { high: number; low: number } | null {
-    if (subset.length === 0) return null;
-    let h = -Infinity;
-    let l = Infinity;
-    for (const b of subset) {
-      if (b.high > h) h = b.high;
-      if (b.low < l) l = b.low;
-    }
-    return { high: h, low: l };
-  }
-
   const levels: PreviousLevels = {};
 
-  // PDH/PDL
-  const todayStart = new Date(Date.UTC(lastDate.getUTCFullYear(), lastDate.getUTCMonth(), lastDate.getUTCDate()));
-  const yesterdayStart = new Date(todayStart.getTime() - 86_400_000);
-  const pdhl = highLow(barsInRange(yesterdayStart.getTime() / 1000, todayStart.getTime() / 1000));
-  if (pdhl) { levels.pdh = pdhl.high; levels.pdl = pdhl.low; }
+  // PDH/PDL — previous UTC day
+  const prevDay = previousGroupHL(times, bars, utcDayKey);
+  if (prevDay) {
+    levels.pdh = prevDay.high;
+    levels.pdl = prevDay.low;
+  }
 
-  // PWH/PWL
-  const dayOfWeek = lastDate.getUTCDay();
-  const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  const thisWeekStart = new Date(todayStart.getTime() - mondayOffset * 86_400_000);
-  const prevWeekStart = new Date(thisWeekStart.getTime() - 7 * 86_400_000);
-  const pwhl = highLow(barsInRange(prevWeekStart.getTime() / 1000, thisWeekStart.getTime() / 1000));
-  if (pwhl) { levels.pwh = pwhl.high; levels.pwl = pwhl.low; }
+  // PWH/PWL — previous UTC week
+  const prevWeek = previousGroupHL(times, bars, utcWeekKey);
+  if (prevWeek) {
+    levels.pwh = prevWeek.high;
+    levels.pwl = prevWeek.low;
+  }
 
-  // PMH/PML
-  const thisMonthStart = new Date(Date.UTC(lastDate.getUTCFullYear(), lastDate.getUTCMonth(), 1));
-  const prevMonthStart = new Date(Date.UTC(lastDate.getUTCFullYear(), lastDate.getUTCMonth() - 1, 1));
-  const pmhl = highLow(barsInRange(prevMonthStart.getTime() / 1000, thisMonthStart.getTime() / 1000));
-  if (pmhl) { levels.pmh = pmhl.high; levels.pml = pmhl.low; }
+  // PMH/PML — previous UTC month
+  const prevMonth = previousGroupHL(times, bars, utcMonthKey);
+  if (prevMonth) {
+    levels.pmh = prevMonth.high;
+    levels.pml = prevMonth.low;
+  }
+
+  console.log("[SMC] detectPreviousLevels →", {
+    totalBars: bars.length,
+    firstTime: new Date(times[0] * 1000).toISOString(),
+    lastTime: new Date(times[times.length - 1] * 1000).toISOString(),
+    levels,
+  });
 
   return levels;
 }
