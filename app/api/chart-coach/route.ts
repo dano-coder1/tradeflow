@@ -13,6 +13,13 @@ interface CoachSettings {
   customRules: string;
 }
 
+interface StrategyProfile {
+  name: string;
+  summary: string;
+  rules: string[];
+  methodology: string;
+}
+
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -60,10 +67,22 @@ const RISK_INSTRUCTIONS: Record<string, string> = {
 
 // ── System prompt builder ────────────────────────────────────────────────────
 
-function buildSystemPrompt(settings: CoachSettings, chartContext: string): string {
+function buildSystemPrompt(settings: CoachSettings, chartContext: string, strategy?: StrategyProfile): string {
   const parts: string[] = [];
 
   parts.push("You are a trading chart coach analyzing a live chart for the trader. Give honest, actionable feedback based on what you see.");
+
+  // Active strategy profile
+  if (strategy) {
+    parts.push(`\n=== TRADER'S STRATEGY: ${strategy.name} ===`);
+    parts.push(strategy.summary);
+    if (strategy.rules.length > 0) {
+      parts.push(`\nStrategy rules:`);
+      strategy.rules.forEach((r, i) => parts.push(`${i + 1}. ${r}`));
+    }
+    parts.push(`Methodology: ${strategy.methodology}`);
+    parts.push(`\nAnalyze the chart through the lens of THIS strategy. Reference specific rules when they apply or are violated.`);
+  }
 
   // Methodology
   const methods = settings.methodology
@@ -113,11 +132,13 @@ export async function POST(req: NextRequest) {
       messages,
       chartContext,
       coachSettings,
+      strategyProfile,
       model: requestedModel,
     }: {
       messages: ChatMessage[];
       chartContext: string;
       coachSettings: CoachSettings;
+      strategyProfile?: StrategyProfile;
       model?: string;
     } = body;
 
@@ -125,7 +146,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "messages required" }, { status: 400 });
     }
 
-    const systemPrompt = buildSystemPrompt(coachSettings, chartContext);
+    const systemPrompt = buildSystemPrompt(coachSettings, chartContext, strategyProfile);
 
     // Build OpenAI messages with optional vision support
     const apiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
