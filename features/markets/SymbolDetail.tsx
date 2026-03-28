@@ -64,11 +64,11 @@ function summarizeDrawings(drawings: { type: string; price: number; price2?: num
   return parts.join("; ");
 }
 
-const DRAFT_KEY = "tf:analyzer-drafts";
+const DRAFT_KEY = "analyzer_draft_v1";
 
 function saveDrafts(shots: CapturedShot[]) {
   try {
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(shots.slice(-6)));
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(shots.slice(-12)));
   } catch {}
 }
 
@@ -77,24 +77,6 @@ function loadDrafts(): CapturedShot[] {
     const raw = sessionStorage.getItem(DRAFT_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }
-}
-
-// ── Capture helpers ─────────────────────────────────────────────────────────
-
-async function captureElementAsDataUrl(el: HTMLElement): Promise<string | null> {
-  try {
-    const html2canvas = (await import("html2canvas")).default;
-    const canvas = await html2canvas(el, {
-      backgroundColor: "#080808",
-      useCORS: true,
-      allowTaint: true,
-      scale: 1,
-      logging: false,
-    });
-    return canvas.toDataURL("image/png");
-  } catch {
-    return null;
-  }
 }
 
 // ── Main component ──────────────────────────────────────────────────────────
@@ -110,6 +92,7 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
   const [drafts, setDrafts] = useState<CapturedShot[]>(() => loadDrafts());
   const lwChartRef = useRef<LightweightChartHandle>(null);
   const tvContainerRef = useRef<HTMLDivElement>(null);
+  const [fullSetProgress, setFullSetProgress] = useState<string | null>(null);
 
   // ── Context builders ──────────────────────────────────────────────────────
 
@@ -150,19 +133,15 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
 
   const captureChart = useCallback(async (): Promise<string | null> => {
     if (chartMode === "advanced") {
-      // Use lightweight-charts native screenshot API
       return lwChartRef.current?.takeScreenshot() ?? null;
     }
-    if (chartMode === "tradingview" && tvContainerRef.current) {
-      // Use html2canvas for the TradingView wrapper
-      return captureElementAsDataUrl(tvContainerRef.current);
-    }
+    // TradingView capture blocked at CaptureActions level
     return null;
   }, [chartMode]);
 
   const addDraft = useCallback((shot: CapturedShot) => {
     setDrafts((prev) => {
-      const next = [...prev, shot].slice(-6);
+      const next = [...prev, shot].slice(-12);
       saveDrafts(next);
       return next;
     });
@@ -172,59 +151,55 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
     const dataUrl = await captureChart();
     if (!dataUrl) return null;
     const shot: CapturedShot = {
+      id: crypto.randomUUID(),
       dataUrl,
       symbol,
       timeframe,
       chartMode: chartMode ?? "unknown",
-      timestamp: Date.now(),
+      capturedAt: Date.now(),
     };
     addDraft(shot);
     return shot;
   }, [captureChart, symbol, timeframe, chartMode, addDraft]);
 
   const captureFullSet = useCallback(async (): Promise<CapturedShot[]> => {
-    if (chartMode !== "advanced") {
-      // For TradingView, capture only the current TF since we can't programmatically change TF
-      const shot = await captureCurrent();
-      return shot ? [shot] : [];
-    }
+    if (chartMode !== "advanced") return [];
     const shots: CapturedShot[] = [];
-    for (const tf of TIMEFRAMES) {
+    for (let i = 0; i < TIMEFRAMES.length; i++) {
+      const tf = TIMEFRAMES[i];
+      setFullSetProgress(`Capturing ${i + 1}/${TIMEFRAMES.length}…`);
       setTimeframe(tf);
-      // Wait for chart to re-render with new timeframe data
       await new Promise((r) => setTimeout(r, 1500));
       const dataUrl = lwChartRef.current?.takeScreenshot() ?? null;
       if (dataUrl) {
         shots.push({
+          id: crypto.randomUUID(),
           dataUrl,
           symbol,
           timeframe: tf,
           chartMode: "advanced",
-          timestamp: Date.now(),
+          capturedAt: Date.now(),
         });
       }
     }
+    setFullSetProgress(null);
     if (shots.length > 0) {
       setDrafts((prev) => {
-        const next = [...prev, ...shots].slice(-6);
+        const next = [...prev, ...shots].slice(-12);
         saveDrafts(next);
         return next;
       });
     }
     return shots;
-  }, [chartMode, captureCurrent, symbol]);
+  }, [chartMode, symbol]);
 
   const analyzeNow = useCallback(async () => {
-    // Use existing drafts, or capture current chart first
     let currentDrafts = loadDrafts();
     if (currentDrafts.length === 0) {
       const shot = await captureCurrent();
-      if (shot) {
-        currentDrafts = [shot];
-      }
+      if (shot) currentDrafts = [shot];
     }
     if (currentDrafts.length === 0) return;
-    // Ensure drafts are saved to sessionStorage before navigation
     saveDrafts(currentDrafts);
     router.push("/dashboard/analyze");
   }, [captureCurrent, router]);
@@ -311,6 +286,8 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
             onCaptureFullSet={captureFullSet}
             onAnalyzeNow={analyzeNow}
             drafts={drafts}
+            chartMode={chartMode}
+            fullSetProgress={fullSetProgress}
           />
           <div className="flex items-center gap-1.5">
             <button

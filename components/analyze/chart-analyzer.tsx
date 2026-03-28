@@ -528,24 +528,24 @@ export function ChartAnalyzer() {
   const [alertSymbol, setAlertSymbol] = useState("");
   const [alertSymbolError, setAlertSymbolError] = useState(false);
 
+  // Metadata labels from draft screenshots (symbol/timeframe per slot)
+  const [draftMeta, setDraftMeta] = useState<{ symbol: string; timeframe: string }[]>([]);
+
   // Pick up chart-captured drafts from sessionStorage
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem("tf:analyzer-drafts");
+      const raw = sessionStorage.getItem("analyzer_draft_v1");
       if (!raw) return;
-      const drafts = JSON.parse(raw) as { dataUrl: string; symbol: string; timeframe: string }[];
+      const drafts = JSON.parse(raw) as { id: string; dataUrl: string; symbol: string; timeframe: string; chartMode: string; capturedAt: number }[];
       if (!Array.isArray(drafts) || drafts.length === 0) return;
-      // Convert data URLs to image URLs for the analyzer
-      // Data URLs work directly as image sources
       const dataUrls = drafts.map((d) => d.dataUrl).filter(Boolean);
       if (dataUrls.length > 0) {
         setImages((prev) => prev.length === 0 ? dataUrls.slice(0, 6) : prev);
-        // Auto-set symbol from the first draft
+        setDraftMeta(drafts.slice(0, 6).map((d) => ({ symbol: d.symbol, timeframe: d.timeframe })));
         const sym = drafts[0]?.symbol;
         if (sym) setSymbol(sym);
       }
-      // Clear drafts after consuming
-      sessionStorage.removeItem("tf:analyzer-drafts");
+      sessionStorage.removeItem("analyzer_draft_v1");
     } catch {}
   }, []);
 
@@ -640,6 +640,7 @@ export function ChartAnalyzer() {
 
   function removeImage(index: number) {
     setImages((prev) => prev.filter((_, i) => i !== index));
+    setDraftMeta((prev) => prev.filter((_, i) => i !== index));
     setResult(null);
     setActiveAnalysisId(null);
     setSaved(false);
@@ -836,7 +837,7 @@ export function ChartAnalyzer() {
                     <X className="h-3 w-3" />
                   </button>
                   <span className="absolute bottom-1 left-1 rounded bg-background/70 px-1 text-xs backdrop-blur-sm">
-                    {i + 1}
+                    {draftMeta[i] ? `${draftMeta[i].symbol} ${draftMeta[i].timeframe}` : i + 1}
                   </span>
                 </div>
               ) : (
