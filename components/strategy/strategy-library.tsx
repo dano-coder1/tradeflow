@@ -11,6 +11,7 @@ import {
   type SavedStrategy, type CuratedStrategy, CURATED_STRATEGIES,
   loadStrategies, saveStrategies, loadActiveStrategyId, saveActiveStrategyId,
 } from "@/lib/strategy-store";
+import { StrategyVisuals } from "./strategy-visuals";
 
 // ── Filter chips ─────────────────────────────────────────────────────────────
 
@@ -436,6 +437,7 @@ export function StrategyLibrary() {
                     {s.methodologyTags.map((t) => <span key={t} className="rounded bg-[#8B5CF6]/15 px-1.5 py-0.5 text-[9px] text-[#8B5CF6]">{t}</span>)}
                     {s.marketTags.map((t) => <span key={t} className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[9px] text-muted-foreground capitalize">{t}</span>)}
                   </div>
+                  <StrategyVisuals strategyId={s.id} />
                 </div>
               )}
 
