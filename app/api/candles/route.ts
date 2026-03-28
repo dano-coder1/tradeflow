@@ -46,8 +46,16 @@ export async function GET(req: NextRequest) {
   }
 
   const tdSymbol = SYMBOL_MAP[symbol.toUpperCase()] ?? symbol;
-  const interval = INTERVAL_MAP[timeframe] ?? "1h";
+  const interval = INTERVAL_MAP[timeframe];
   const apiKey = process.env.TWELVE_DATA_API_KEY;
+
+  if (!interval) {
+    console.error(`[candles] Unsupported timeframe: "${timeframe}". Supported: ${Object.keys(INTERVAL_MAP).join(", ")}`);
+    return NextResponse.json(
+      { error: `Unsupported timeframe: ${timeframe}. Use one of: ${Object.keys(INTERVAL_MAP).join(", ")}` },
+      { status: 400 },
+    );
+  }
 
   if (!apiKey) {
     console.error("[candles] TWELVE_DATA_API_KEY is not set in environment variables");
@@ -60,7 +68,7 @@ export async function GET(req: NextRequest) {
   const tdUrl = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(tdSymbol)}&interval=${interval}&outputsize=200&apikey=${apiKey}`;
 
   try {
-    console.log(`[candles] Fetching ${tdSymbol} ${interval} from Twelve Data`);
+    console.log(`[candles] ${symbol} ${timeframe} → Twelve Data: ${tdSymbol} ${interval}`);
     const res = await fetch(tdUrl, { signal: AbortSignal.timeout(15000) });
 
     if (!res.ok) {
