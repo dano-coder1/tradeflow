@@ -74,6 +74,8 @@ interface LightweightChartProps {
 
 export interface LightweightChartHandle {
   takeScreenshot: () => string | null;
+  getSmcData: () => SmcResult | null;
+  getDrawings: () => Drawing[];
 }
 
 interface IndicatorSeries {
@@ -128,7 +130,9 @@ export const LightweightChart = React.forwardRef<LightweightChartHandle, Lightwe
         return canvas.toDataURL("image/png");
       } catch { return null; }
     },
-  }), []);
+    getSmcData: () => smcData,
+    getDrawings: () => drawings,
+  }), [smcData, drawings]);
 
   // Load saved drawings
   useEffect(() => {

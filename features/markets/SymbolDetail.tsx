@@ -3,7 +3,7 @@
 import { useMemo, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, TrendingUp, PenTool, ArrowLeftRight, Brain, Plus } from "lucide-react";
+import { ArrowLeft, TrendingUp, PenTool, ArrowLeftRight, Brain, Plus, MessageCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useMarketData } from "./useMarketData";
@@ -12,6 +12,7 @@ import { TradingViewChart, getTradingViewSymbol } from "./TradingViewChart";
 import { LightweightChart, type LightweightChartHandle } from "@/components/chart/LightweightChart";
 import { TimeframeBar, TV_INTERVAL_MAP, TIMEFRAMES, type Timeframe } from "@/components/chart/TimeframeBar";
 import { CaptureActions, type CapturedShot } from "@/components/chart/CaptureActions";
+import { ChartCoachModal } from "@/components/chart/ChartCoachModal";
 
 type ChartMode = null | "tradingview" | "advanced";
 
@@ -93,6 +94,7 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
   const lwChartRef = useRef<LightweightChartHandle>(null);
   const tvContainerRef = useRef<HTMLDivElement>(null);
   const [fullSetProgress, setFullSetProgress] = useState<string | null>(null);
+  const [coachOpen, setCoachOpen] = useState(false);
 
   // ── Context builders ──────────────────────────────────────────────────────
 
@@ -297,6 +299,15 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
               <Brain className="h-3.5 w-3.5" />
               Coach
             </button>
+            {chartMode === "advanced" && (
+              <button
+                onClick={() => setCoachOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#0EA5E9]/15 px-3 py-1.5 text-xs font-semibold text-[#0EA5E9] transition-colors hover:bg-[#0EA5E9]/25"
+              >
+                <MessageCircle className="h-3.5 w-3.5" />
+                Analyze with Coach
+              </button>
+            )}
             <button
               onClick={handleCreateTrade}
               className="inline-flex items-center gap-1.5 rounded-lg bg-[#0EA5E9]/15 px-3 py-1.5 text-xs font-semibold text-[#0EA5E9] transition-colors hover:bg-[#0EA5E9]/25"
@@ -320,6 +331,18 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
       {chartMode === "advanced" && (
         <LightweightChart ref={lwChartRef} symbol={symbol} timeframe={timeframe} />
       )}
+
+      {/* Chart Coach floating modal */}
+      <ChartCoachModal
+        open={coachOpen}
+        onClose={() => setCoachOpen(false)}
+        symbol={symbol}
+        timeframe={timeframe}
+        price={price}
+        smcData={lwChartRef.current?.getSmcData() ?? null}
+        drawings={lwChartRef.current?.getDrawings() ?? []}
+        captureScreenshot={() => lwChartRef.current?.takeScreenshot() ?? null}
+      />
     </div>
   );
 }
