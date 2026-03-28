@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { StrategySetup } from "@/components/strategy/strategy-setup";
 import { StrategyChat } from "@/components/strategy/strategy-chat";
+import { StrategyLibrary } from "@/components/strategy/strategy-library";
 import { TraderProfile } from "@/types/trader-profile";
 import { Brain } from "lucide-react";
 
@@ -41,6 +42,9 @@ export default async function StrategyPage() {
           </p>
         </div>
       </div>
+
+      {/* Strategy Library — curated + search + custom + saved */}
+      <StrategyLibrary />
 
       {/* Two-column layout: setup left, coach right */}
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">

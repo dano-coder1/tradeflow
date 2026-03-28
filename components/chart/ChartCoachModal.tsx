@@ -8,6 +8,11 @@ import {
 import { cn } from "@/lib/utils";
 import type { SmcResult } from "@/lib/smc-engine";
 import type { Drawing } from "./ChartDrawingOverlay";
+import {
+  type SavedStrategy,
+  loadStrategies, saveStrategies as persistStrategies,
+  loadActiveStrategyId, saveActiveStrategyId,
+} from "@/lib/strategy-store";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,16 +30,6 @@ export interface CoachSettings {
   customRules: string;
 }
 
-export interface CoachStrategy {
-  id: string;
-  name: string;
-  source: "file" | "url" | "text" | "smc";
-  summary: string;
-  rules: string[];
-  methodology: string;
-  created_at: string;
-}
-
 export const DEFAULT_COACH_SETTINGS: CoachSettings = {
   methodology: ["smc", "price-action"],
   concepts: ["bos-choch", "order-blocks", "pdh-pdl"],
@@ -47,8 +42,6 @@ export const DEFAULT_COACH_SETTINGS: CoachSettings = {
 
 const SETTINGS_KEY = "tf:coach-settings";
 const MODEL_KEY = "tf:coach-model";
-const STRATEGIES_KEY = "tf:coach-strategies";
-const ACTIVE_KEY = "tf:coach-active-strategy";
 
 function loadSettings(): CoachSettings {
   try { const r = localStorage.getItem(SETTINGS_KEY); return r ? { ...DEFAULT_COACH_SETTINGS, ...JSON.parse(r) } : { ...DEFAULT_COACH_SETTINGS }; } catch { return { ...DEFAULT_COACH_SETTINGS }; }
@@ -56,10 +49,9 @@ function loadSettings(): CoachSettings {
 function saveSettings(s: CoachSettings) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {} }
 function loadModel(): string { try { return localStorage.getItem(MODEL_KEY) || "gpt-4.1"; } catch { return "gpt-4.1"; } }
 function saveModel(m: string) { try { localStorage.setItem(MODEL_KEY, m); } catch {} }
-function loadStrategies(): CoachStrategy[] { try { const r = localStorage.getItem(STRATEGIES_KEY); return r ? JSON.parse(r) : []; } catch { return []; } }
-function saveStrategies(s: CoachStrategy[]) { try { localStorage.setItem(STRATEGIES_KEY, JSON.stringify(s)); } catch {} }
-function loadActiveId(): string | null { try { return localStorage.getItem(ACTIVE_KEY); } catch { return null; } }
-function saveActiveId(id: string | null) { try { if (id) localStorage.setItem(ACTIVE_KEY, id); else localStorage.removeItem(ACTIVE_KEY); } catch {} }
+function loadActiveId(): string | null { return loadActiveStrategyId(); }
+function saveActiveId(id: string | null) { saveActiveStrategyId(id); }
+function saveStrategies(s: SavedStrategy[]) { persistStrategies(s); }
 
 // ── Chart context builder ────────────────────────────────────────────────────
 
@@ -135,7 +127,7 @@ type View = "onboarding" | "extracting" | "confirm" | "manage" | "chat";
 
 export function ChartCoachModal({ open, onClose, symbol, timeframe, price, smcData, drawings, captureScreenshot }: ChartCoachModalProps) {
   const [view, setView] = useState<View>("chat");
-  const [strategies, setStrategies] = useState<CoachStrategy[]>(() => loadStrategies());
+  const [strategies, setStrategies] = useState<SavedStrategy[]>(() => loadStrategies());
   const [activeId, setActiveId] = useState<string | null>(() => loadActiveId());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -157,7 +149,7 @@ export function ChartCoachModal({ open, onClose, symbol, timeframe, price, smcDa
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [viewingStrategy, setViewingStrategy] = useState<CoachStrategy | null>(null);
+  const [viewingStrategy, setViewingStrategy] = useState<SavedStrategy | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -210,7 +202,7 @@ export function ChartCoachModal({ open, onClose, symbol, timeframe, price, smcDa
     saveActiveId(id);
   }
 
-  function addStrategy(strat: CoachStrategy) {
+  function addStrategy(strat: SavedStrategy) {
     const next = [...strategies, strat];
     setStrategies(next);
     saveStrategies(next);
@@ -265,15 +257,17 @@ export function ChartCoachModal({ open, onClose, symbol, timeframe, price, smcDa
 
   function confirmStrategy() {
     if (!extracted) return;
-    const source: CoachStrategy["source"] =
-      strategyUrl ? "url" : uploadedFiles.length > 0 ? "file" : strategyText ? "text" : "smc";
-    const strat: CoachStrategy = {
+    const source: SavedStrategy["source"] =
+      strategyUrl ? "url" : uploadedFiles.length > 0 ? "file" : strategyText ? "text" : "preset";
+    const strat: SavedStrategy = {
       id: crypto.randomUUID(),
       name: newName.trim() || "My Strategy",
       source,
       summary: extracted.summary,
       rules: extracted.rules,
-      methodology: extracted.methodology,
+      methodologyTags: [extracted.methodology?.toLowerCase() ?? "mixed"],
+      marketTags: [],
+      difficulty: "intermediate",
       created_at: new Date().toISOString(),
     };
     addStrategy(strat);
@@ -324,7 +318,7 @@ export function ChartCoachModal({ open, onClose, symbol, timeframe, price, smcDa
           messages: nextMsgs,
           chartContext: ctx,
           coachSettings: settings,
-          strategyProfile: strat ? { name: strat.name, summary: strat.summary, rules: strat.rules, methodology: strat.methodology } : undefined,
+          strategyProfile: strat ? { name: strat.name, summary: strat.summary, rules: strat.rules, methodology: strat.methodologyTags.join(", ") } : undefined,
           model,
         }),
       });
@@ -647,10 +641,10 @@ export function ChartCoachModal({ open, onClose, symbol, timeframe, price, smcDa
 
 // ── Source icon helper ────────────────────────────────────────────────────────
 
-function SourceIcon({ source }: { source: CoachStrategy["source"] }) {
+function SourceIcon({ source }: { source: SavedStrategy["source"] }) {
   const cls = "h-3.5 w-3.5 shrink-0 text-muted-foreground";
   switch (source) {
-    case "smc": return <Sparkles className={cn(cls, "text-[#0EA5E9]")} />;
+    case "preset": return <Sparkles className={cn(cls, "text-[#0EA5E9]")} />;
     case "file": return <FileText className={cls} />;
     case "url": return <Link2 className={cls} />;
     case "text": return <FileText className={cls} />;
