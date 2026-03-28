@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, TrendingUp, TrendingDown, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Trade, AutopsyResult } from "@/types/trade";
+import type { Trade, TradeReview } from "@/types/trade";
 
 const POSITIVE_TAGS = new Set([
   "good_patience", "correct_invalidation", "clean_execution", "good_risk_management",
@@ -31,7 +31,7 @@ export function MyPatterns({ trades }: MyPatternsProps) {
   let autopsiedCount = 0;
 
   for (const trade of trades) {
-    const autopsy = trade.autopsy_json as AutopsyResult | null;
+    const autopsy = trade.autopsy_json as TradeReview | null;
     if (!autopsy?.behavior_tags) continue;
     autopsiedCount++;
     for (const tag of autopsy.behavior_tags) {

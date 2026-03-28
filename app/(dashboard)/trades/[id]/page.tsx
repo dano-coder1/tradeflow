@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { AIReviewPanel } from "@/components/trades/ai-review-panel";
+import { TradeReviewButton } from "@/components/trades/trade-review-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft } from "lucide-react";
@@ -189,7 +189,7 @@ export default async function TradeDetailPage({
         </Card>
       )}
 
-      <AIReviewPanel trade={t} />
+      <TradeReviewButton trade={t} />
     </div>
   );
 }
