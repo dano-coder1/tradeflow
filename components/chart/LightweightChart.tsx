@@ -194,14 +194,14 @@ export const LightweightChart = React.forwardRef<LightweightChartHandle, Lightwe
     setCandleError(null);
 
     fetch(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
+      .then(async (r) => {
+        const json = await r.json();
+        if (!r.ok || json.error || !json.candles || json.candles.length === 0) {
+          throw new Error(json.error ?? `HTTP ${r.status}`);
+        }
+        return json;
       })
       .then((json) => {
-        if (json.error || !json.candles || json.candles.length === 0) {
-          throw new Error(json.error ?? "No candle data");
-        }
         const candles = json.candles.map((c: { time: number; open: number; high: number; low: number; close: number }) => ({
           time: c.time as Time,
           open: c.open,

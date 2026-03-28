@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // ── Symbol mapping ───────────────────────────────────────────────────────────
-// Maps app symbols to Twelve Data symbols
 
 const SYMBOL_MAP: Record<string, string> = {
   XAUUSD: "XAU/USD",
@@ -10,9 +9,9 @@ const SYMBOL_MAP: Record<string, string> = {
   GBPUSD: "GBP/USD",
   USDJPY: "USD/JPY",
   GBPJPY: "GBP/JPY",
-  NAS100: "NAS100",
+  NAS100: "IXIC",
   US30: "DJI",
-  OIL: "WTI/USD",
+  OIL: "CL",
   BTCUSD: "BTC/USD",
   ETHUSD: "ETH/USD",
   AUDUSD: "AUD/USD",
@@ -24,7 +23,6 @@ const SYMBOL_MAP: Record<string, string> = {
 };
 
 // ── Timeframe mapping ────────────────────────────────────────────────────────
-// Maps app timeframes to Twelve Data interval parameter
 
 const INTERVAL_MAP: Record<string, string> = {
   "1m": "1min",
@@ -44,7 +42,7 @@ export async function GET(req: NextRequest) {
   const timeframe = searchParams.get("timeframe") ?? "1h";
 
   if (!symbol) {
-    return NextResponse.json({ error: "symbol is required" }, { status: 400 });
+    return NextResponse.json({ error: "Missing parameter: symbol" }, { status: 400 });
   }
 
   const tdSymbol = SYMBOL_MAP[symbol.toUpperCase()] ?? symbol;
@@ -52,45 +50,79 @@ export async function GET(req: NextRequest) {
   const apiKey = process.env.TWELVE_DATA_API_KEY;
 
   if (!apiKey) {
-    return NextResponse.json({ error: "TWELVE_DATA_API_KEY not configured" }, { status: 500 });
+    console.error("[candles] TWELVE_DATA_API_KEY is not set in environment variables");
+    return NextResponse.json(
+      { error: "API key not configured. Add TWELVE_DATA_API_KEY to your .env.local file." },
+      { status: 503 },
+    );
   }
 
-  try {
-    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(tdSymbol)}&interval=${interval}&outputsize=200&apikey=${apiKey}`;
+  const tdUrl = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(tdSymbol)}&interval=${interval}&outputsize=200&apikey=${apiKey}`;
 
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  try {
+    console.log(`[candles] Fetching ${tdSymbol} ${interval} from Twelve Data`);
+    const res = await fetch(tdUrl, { signal: AbortSignal.timeout(15000) });
+
     if (!res.ok) {
-      return NextResponse.json({ error: `Twelve Data returned ${res.status}` }, { status: 502 });
+      const text = await res.text().catch(() => "");
+      console.error(`[candles] Twelve Data HTTP ${res.status}: ${text.slice(0, 200)}`);
+      return NextResponse.json(
+        { error: `Provider returned HTTP ${res.status}` },
+        { status: 502 },
+      );
     }
 
     const data = await res.json();
 
-    if (data.status === "error" || !data.values || !Array.isArray(data.values)) {
-      return NextResponse.json({
-        error: data.message ?? "No data returned from Twelve Data",
-      }, { status: 502 });
+    // Twelve Data returns { status: "error", message: "..." } on failures
+    if (data.status === "error") {
+      console.error(`[candles] Twelve Data error for ${tdSymbol}: ${data.message}`);
+      return NextResponse.json(
+        { error: `Provider error: ${data.message ?? "Unknown error"}` },
+        { status: 502 },
+      );
+    }
+
+    if (!data.values || !Array.isArray(data.values) || data.values.length === 0) {
+      console.error(`[candles] No candle data returned for ${tdSymbol} ${interval}`);
+      return NextResponse.json(
+        { error: `No data available for ${symbol} on ${timeframe} timeframe` },
+        { status: 404 },
+      );
     }
 
     // Normalize: Twelve Data returns newest first, we need oldest first
     const candles = data.values
-      .map((v: { datetime: string; open: string; high: string; low: string; close: string }) => ({
-        time: Math.floor(new Date(v.datetime).getTime() / 1000),
-        open: parseFloat(v.open),
-        high: parseFloat(v.high),
-        low: parseFloat(v.low),
-        close: parseFloat(v.close),
-      }))
+      .map((v: { datetime: string; open: string; high: string; low: string; close: string }) => {
+        const time = Math.floor(new Date(v.datetime).getTime() / 1000);
+        return {
+          time,
+          open: parseFloat(v.open),
+          high: parseFloat(v.high),
+          low: parseFloat(v.low),
+          close: parseFloat(v.close),
+        };
+      })
       .filter((c: { time: number; open: number }) => !isNaN(c.time) && !isNaN(c.open))
-      .reverse(); // oldest first for lightweight-charts
+      .reverse();
 
-    return NextResponse.json({
-      candles,
-      symbol: tdSymbol,
-      interval,
-      count: candles.length,
-    });
+    if (candles.length === 0) {
+      return NextResponse.json(
+        { error: `Received data but all candles were invalid for ${symbol}` },
+        { status: 502 },
+      );
+    }
+
+    console.log(`[candles] Returning ${candles.length} candles for ${tdSymbol} ${interval}`);
+    return NextResponse.json({ candles, symbol: tdSymbol, interval, count: candles.length });
   } catch (e) {
-    console.error("[candles] error:", e);
-    return NextResponse.json({ error: "Failed to fetch candle data" }, { status: 500 });
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    console.error(`[candles] Fetch failed for ${tdSymbol} ${interval}:`, msg);
+
+    if (msg.includes("abort") || msg.includes("timeout")) {
+      return NextResponse.json({ error: "Provider request timed out. Try again." }, { status: 504 });
+    }
+
+    return NextResponse.json({ error: `Failed to fetch data: ${msg}` }, { status: 500 });
   }
 }
