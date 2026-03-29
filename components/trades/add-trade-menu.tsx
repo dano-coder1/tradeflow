@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Plus, FileSpreadsheet, Image, PenLine, ChevronDown } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { CSVImportButton } from "./csv-import-button";
@@ -10,6 +10,8 @@ export function AddTradeMenu() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const csvTriggerRef = useRef<(() => void) | null>(null);
+  const screenshotTriggerRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -20,6 +22,17 @@ export function AddTradeMenu() {
     if (open) document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [open]);
+
+  const handleCSV = useCallback(() => {
+    setOpen(false);
+    // Small delay to let dropdown unmount before triggering file picker
+    setTimeout(() => csvTriggerRef.current?.(), 0);
+  }, []);
+
+  const handleScreenshot = useCallback(() => {
+    setOpen(false);
+    setTimeout(() => screenshotTriggerRef.current?.(), 0);
+  }, []);
 
   return (
     <div ref={menuRef} className="relative">
@@ -51,38 +64,44 @@ export function AddTradeMenu() {
 
             <div className="mx-3 my-1 border-t border-white/[0.06]" />
 
-            <CSVImportButton
-              renderTrigger={(onClick) => (
-                <button
-                  onClick={() => { setOpen(false); onClick(); }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-white/[0.06] transition-colors"
-                >
-                  <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
-                  <div className="text-left">
-                    <p className="font-medium">Import CSV</p>
-                    <p className="text-[11px] text-muted-foreground">Any broker export</p>
-                  </div>
-                </button>
-              )}
-            />
+            <button
+              onClick={handleCSV}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-white/[0.06] transition-colors"
+            >
+              <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+              <div className="text-left">
+                <p className="font-medium">Import CSV</p>
+                <p className="text-[11px] text-muted-foreground">Any broker export</p>
+              </div>
+            </button>
 
-            <MT5ImportButton
-              renderTrigger={(onClick) => (
-                <button
-                  onClick={() => { setOpen(false); onClick(); }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-white/[0.06] transition-colors"
-                >
-                  <Image className="h-4 w-4 text-amber-400" />
-                  <div className="text-left">
-                    <p className="font-medium">Import Screenshot</p>
-                    <p className="text-[11px] text-muted-foreground">AI extracts trades</p>
-                  </div>
-                </button>
-              )}
-            />
+            <button
+              onClick={handleScreenshot}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-white/[0.06] transition-colors"
+            >
+              <Image className="h-4 w-4 text-amber-400" />
+              <div className="text-left">
+                <p className="font-medium">Import Screenshot</p>
+                <p className="text-[11px] text-muted-foreground">AI extracts trades</p>
+              </div>
+            </button>
           </div>
         </div>
       )}
+
+      {/* Always mounted so file inputs and modals persist */}
+      <CSVImportButton
+        renderTrigger={(onClick) => {
+          csvTriggerRef.current = onClick;
+          return null;
+        }}
+      />
+      <MT5ImportButton
+        renderTrigger={(onClick) => {
+          screenshotTriggerRef.current = onClick;
+          return null;
+        }}
+      />
     </div>
   );
 }
