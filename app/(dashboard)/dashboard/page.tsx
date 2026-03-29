@@ -6,7 +6,6 @@ import { TradeList } from "@/components/trades/trade-list";
 import { StrategyChat } from "@/components/strategy/strategy-chat";
 import { StrategyCard } from "@/components/strategy/strategy-card";
 import { ActiveAlertsPanel } from "@/components/dashboard/active-alerts-panel";
-import { AddTradeMenu } from "@/components/trades/add-trade-menu";
 import { TradingCalendar } from "@/components/dashboard/trading-calendar";
 import { Brain } from "lucide-react";
 import { Trade } from "@/types/trade";
@@ -46,12 +45,9 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Top bar */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-gradient">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">{user.email}</p>
-        </div>
-        <AddTradeMenu />
+      <div>
+        <h1 className="text-2xl font-extrabold tracking-tight text-gradient">Dashboard</h1>
+        <p className="text-sm text-muted-foreground">{user.email}</p>
       </div>
 
       {/* Stats bar — full width */}

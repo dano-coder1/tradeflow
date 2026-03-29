@@ -6,8 +6,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import { getAlerts, removeAlert, type StoredAlert } from "@/lib/alert-store";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, LayoutDashboard, ScanLine, Brain, BarChart3, GraduationCap, Plus, LogOut, Bell, X, Menu } from "lucide-react";
+import { TrendingUp, LayoutDashboard, ScanLine, Brain, BarChart3, GraduationCap, LogOut, Bell, X, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AddTradeMenu } from "@/components/trades/add-trade-menu";
 
 const NAV_LINKS = [
   { href: "/dashboard",          label: "Dashboard", icon: LayoutDashboard },
@@ -169,13 +170,7 @@ export function Navbar() {
           </div>
           <div className="flex items-center gap-1.5">
             <AlertsIndicator />
-            <Link
-              href="/trades/new"
-              className="btn-gradient inline-flex h-9 md:h-8 items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold text-white"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">New Trade</span>
-            </Link>
+            <AddTradeMenu />
             <Button
               variant="ghost"
               size="icon"
