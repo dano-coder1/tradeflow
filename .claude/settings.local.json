@@ -7,7 +7,20 @@
       "Bash(node:*)",
       "Bash(ls -la /c/Users/danoo/Documents/tradeflow/app/\\\\\\(dashboard\\\\\\)/dashboard/)",
       "Bash(ls:*)",
-      "Bash(npx next:*)"
+      "Bash(npx next:*)",
+      "Bash(curl:*)",
+      "Bash(netstat -ano)",
+      "Bash(xargs cat:*)",
+      "Bash(ls -la /c/Users/danoo/Documents/tradeflow/app/\\\\\\(dashboard\\\\\\)/dashboard/analyze/)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(ls -la \"/c/Users/danoo/Documents/tradeflow/app/\\(dashboard\\)/trades/\")",
+      "Bash(grep -r \"signOut\\\\|logout\\\\|getSession\\\\|useAuth\" /c/Users/danoo/Documents/tradeflow/app --include=*.tsx --include=*.ts)",
+      "Bash(find /c/Users/danoo/Documents/tradeflow/lib -type f \\\\\\(-name *.ts -o -name *.tsx \\\\\\))",
+      "Bash(grep -E \"\\\\.\\(sql|ts\\)$\")",
+      "Bash(mkdir -p C:/Users/danoo/Documents/tradeflow/app/api/trades/universal-csv-import/parse)",
+      "Bash(mkdir -p C:/Users/danoo/Documents/tradeflow/app/api/trades/universal-csv-import/save)"
     ]
   }
 }

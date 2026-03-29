@@ -7,6 +7,7 @@ import { StrategyChat } from "@/components/strategy/strategy-chat";
 import { StrategyCard } from "@/components/strategy/strategy-card";
 import { ActiveAlertsPanel } from "@/components/dashboard/active-alerts-panel";
 import { MT5ImportButton } from "@/components/trades/mt5-import-button";
+import { CSVImportButton } from "@/components/trades/csv-import-button";
 import { MyPatterns } from "@/components/trades/my-patterns";
 import { TradingCalendar } from "@/components/dashboard/trading-calendar";
 import { Plus, Brain } from "lucide-react";
@@ -53,6 +54,7 @@ export default async function DashboardPage() {
           <p className="text-sm text-muted-foreground">{user.email}</p>
         </div>
         <div className="flex items-center gap-2">
+          <CSVImportButton />
           <MT5ImportButton />
           <Link
             href="/trades/new"
