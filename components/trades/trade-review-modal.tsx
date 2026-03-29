@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { X, Loader2, AlertTriangle, CheckCircle, Target, Lightbulb, Tag, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tagLabel, tagColor, confidenceColor } from "@/lib/trade-tags";
+import { ModalOverlay } from "@/components/ui/modal";
 import type { Trade, TradeReview } from "@/types/trade";
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -47,16 +48,15 @@ export function TradeReviewModal({ trade, onClose, onUpdated }: TradeReviewModal
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-      <div className="glass-strong relative w-full max-w-lg max-h-[85vh] rounded-2xl shadow-2xl shadow-black/40 overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+    <ModalOverlay onClose={onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="review-modal-title" className="glass-strong relative w-full max-w-lg max-h-[85vh] rounded-2xl shadow-2xl shadow-black/40 overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5 shrink-0">
           <div>
-            <h3 className="text-sm font-bold text-foreground">Trade Review</h3>
+            <h3 id="review-modal-title" className="text-sm font-bold text-foreground">Trade Review</h3>
             <p className="text-[11px] text-muted-foreground">{trade.symbol} · {trade.direction.toUpperCase()} · {trade.trade_date}</p>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground">
+          <button onClick={onClose} aria-label="Close review" className="rounded-lg p-1 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -189,6 +189,6 @@ export function TradeReviewModal({ trade, onClose, onUpdated }: TradeReviewModal
           )}
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

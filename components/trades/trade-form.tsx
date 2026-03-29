@@ -286,7 +286,7 @@ export function TradeForm() {
         </CardContent>
       </Card>
 
-      {serverError && <p className="text-sm text-destructive">{serverError}</p>}
+      {serverError && <p role="alert" className="text-sm text-destructive">{serverError}</p>}
 
       <div className="flex justify-end gap-3">
         <Button type="button" variant="outline" onClick={() => router.back()}>

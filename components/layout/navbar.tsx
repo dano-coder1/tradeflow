@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { TrendingUp, LayoutDashboard, ScanLine, Brain, BarChart3, GraduationCap, LogOut, Bell, X, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AddTradeMenu } from "@/components/trades/add-trade-menu";
+import FocusTrap from "focus-trap-react";
 
 const NAV_LINKS = [
   { href: "/dashboard",          label: "Dashboard", icon: LayoutDashboard },
@@ -64,7 +65,8 @@ function AlertsIndicator() {
             ? "text-[#0EA5E9] hover:bg-[#0EA5E9]/10"
             : "text-muted-foreground hover:bg-white/[0.05]"
         )}
-        title={`${alerts.length} active alert${alerts.length !== 1 ? "s" : ""}`}
+        aria-label={`${alerts.length} active alert${alerts.length !== 1 ? "s" : ""}`}
+        aria-expanded={open}
       >
         <Bell className="h-4 w-4" />
         {alerts.length > 0 && (
@@ -107,6 +109,7 @@ function AlertsIndicator() {
                         <button
                           onClick={() => handleRemove(a.id)}
                           className="rounded p-1.5 text-muted-foreground/40 transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                          aria-label={`Remove ${a.label} alert for ${a.symbol}`}
                         >
                           <X className="h-3 w-3" />
                         </button>
@@ -128,6 +131,16 @@ export function Navbar() {
   const pathname = usePathname();
   const supabase = createClientSupabaseClient();
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const handleDrawerKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === "Escape") setDrawerOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    document.addEventListener("keydown", handleDrawerKeyDown);
+    return () => document.removeEventListener("keydown", handleDrawerKeyDown);
+  }, [drawerOpen, handleDrawerKeyDown]);
 
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -155,6 +168,7 @@ export function Navbar() {
                 <Link
                   key={href}
                   href={href}
+                  aria-current={pathname === href ? "page" : undefined}
                   className={cn(
                     "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-all duration-200",
                     pathname === href
@@ -175,7 +189,7 @@ export function Navbar() {
               variant="ghost"
               size="icon"
               onClick={handleLogout}
-              title="Logout"
+              aria-label="Sign out"
               className="hidden md:flex"
             >
               <LogOut className="h-4 w-4" />
@@ -184,6 +198,8 @@ export function Navbar() {
             <button
               onClick={() => setDrawerOpen(true)}
               className="flex md:hidden h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-white/[0.05]"
+              aria-label="Open menu"
+              aria-expanded={drawerOpen}
             >
               <Menu className="h-5 w-5" />
             </button>
@@ -193,9 +209,13 @@ export function Navbar() {
 
       {/* Mobile drawer overlay */}
       {drawerOpen && (
+        <FocusTrap focusTrapOptions={{ allowOutsideClick: true, escapeDeactivates: false }}>
         <div className="fixed inset-0 z-[60] md:hidden" onClick={() => setDrawerOpen(false)}>
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation menu"
             className="absolute right-0 top-0 h-full w-64 glass-strong border-l border-white/[0.06] p-5 space-y-6 animate-fade-in"
             onClick={(e) => e.stopPropagation()}
           >
@@ -204,6 +224,7 @@ export function Navbar() {
               <button
                 onClick={() => setDrawerOpen(false)}
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-white/[0.06]"
+                aria-label="Close menu"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -215,6 +236,7 @@ export function Navbar() {
                   key={href}
                   href={href}
                   onClick={() => setDrawerOpen(false)}
+                  aria-current={pathname === href ? "page" : undefined}
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-3 text-sm transition-all",
                     pathname === href
@@ -239,6 +261,7 @@ export function Navbar() {
             </div>
           </div>
         </div>
+        </FocusTrap>
       )}
     </>
   );

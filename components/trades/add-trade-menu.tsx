@@ -39,6 +39,8 @@ export function AddTradeMenu() {
       <button
         onClick={() => setOpen((v) => !v)}
         className="btn-gradient inline-flex h-9 items-center gap-1.5 rounded-md px-4 text-sm font-semibold text-white"
+        aria-expanded={open}
+        aria-haspopup="true"
       >
         <Plus className="h-4 w-4" />
         Add Trade
@@ -46,9 +48,10 @@ export function AddTradeMenu() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 z-50 w-56 rounded-xl glass-strong border border-white/[0.08] shadow-2xl shadow-black/40 overflow-hidden">
+        <div role="menu" className="absolute right-0 top-full mt-2 z-50 w-56 rounded-xl glass-strong border border-white/[0.08] shadow-2xl shadow-black/40 overflow-hidden">
           <div className="py-1.5">
             <button
+              role="menuitem"
               onClick={() => {
                 setOpen(false);
                 router.push("/trades/new");
@@ -65,6 +68,7 @@ export function AddTradeMenu() {
             <div className="mx-3 my-1 border-t border-white/[0.06]" />
 
             <button
+              role="menuitem"
               onClick={handleCSV}
               className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-white/[0.06] transition-colors"
             >
@@ -76,6 +80,7 @@ export function AddTradeMenu() {
             </button>
 
             <button
+              role="menuitem"
               onClick={handleScreenshot}
               className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-white/[0.06] transition-colors"
             >

@@ -84,7 +84,7 @@ function LoginForm() {
             />
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
           <div className="flex items-center justify-between">
             <Link href="/forgot-password" className="text-xs text-muted-foreground hover:text-primary">

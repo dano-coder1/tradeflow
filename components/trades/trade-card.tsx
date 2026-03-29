@@ -7,6 +7,7 @@ import { Trade } from "@/types/trade";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Image as ImageIcon, Pencil, Trash2, X, Loader2, Stethoscope } from "lucide-react";
+import { ModalOverlay } from "@/components/ui/modal";
 import { TradeReviewModal } from "./trade-review-modal";
 
 function directionColor(d: string) {
@@ -71,17 +72,19 @@ function EditModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+    <ModalOverlay onClose={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-modal-title"
         className="glass-strong relative w-full max-w-md rounded-2xl shadow-2xl shadow-black/40 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
-          <h3 className="text-sm font-bold text-foreground">
+          <h3 id="edit-modal-title" className="text-sm font-bold text-foreground">
             Edit {trade.symbol} <span className="text-muted-foreground font-normal">· {trade.direction.toUpperCase()}</span>
           </h3>
-          <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground">
+          <button onClick={onClose} aria-label="Close editor" className="rounded-lg p-1 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -131,7 +134,7 @@ function EditModal({
               placeholder="Reason for trade..."
             />
           </label>
-          {error && <p className="text-xs text-red-400">{error}</p>}
+          {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-3">
@@ -147,7 +150,7 @@ function EditModal({
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }
 
@@ -184,19 +187,21 @@ function DeleteConfirm({
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+    <ModalOverlay onClose={onClose}>
       <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-modal-title"
         className="glass-strong relative w-full max-w-sm rounded-2xl shadow-2xl shadow-black/40 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-5 text-center space-y-2">
-          <p className="text-sm font-bold text-foreground">Delete trade?</p>
+          <p id="delete-modal-title" className="text-sm font-bold text-foreground">Delete trade?</p>
           <p className="text-xs text-muted-foreground">
             {trade.symbol} · {trade.direction.toUpperCase()} · {trade.trade_date}
           </p>
           <p className="text-xs text-muted-foreground/60">This cannot be undone.</p>
-          {error && <p className="text-xs text-red-400">{error}</p>}
+          {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
         </div>
         <div className="flex items-center justify-center gap-3 border-t border-white/[0.06] px-5 py-3">
           <button onClick={onClose} className="rounded-lg border border-white/[0.08] px-4 py-1.5 text-xs text-muted-foreground hover:bg-white/[0.06] hover:text-foreground">
@@ -211,7 +216,7 @@ function DeleteConfirm({
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }
 
@@ -306,7 +311,7 @@ export function TradeCard({ trade }: { trade: Trade }) {
                   ? "text-[#0EA5E9] hover:bg-[#0EA5E9]/10"
                   : "text-muted-foreground/60 hover:bg-[#0EA5E9]/10 hover:text-[#0EA5E9]"
               )}
-              title={hasReview ? "View Review" : "Run Review"}
+              aria-label={hasReview ? "View review" : "Run review"}
             >
               <Stethoscope className="h-3.5 w-3.5" />
             </button>
@@ -314,14 +319,14 @@ export function TradeCard({ trade }: { trade: Trade }) {
           <button
             onClick={() => setEditOpen(true)}
             className="rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-white/[0.08] hover:text-foreground"
-            title="Edit"
+            aria-label="Edit trade"
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => setDeleteOpen(true)}
             className="rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-red-500/10 hover:text-red-400"
-            title="Delete"
+            aria-label="Delete trade"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>

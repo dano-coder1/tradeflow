@@ -119,7 +119,7 @@ export default function RegisterPage() {
             />
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
           <Button type="submit" className="w-full" loading={loading}>
             Create account
