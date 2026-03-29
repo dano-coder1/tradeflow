@@ -41,9 +41,9 @@ export function TradeReviewModal({ trade, onClose, onUpdated }: TradeReviewModal
     setLoading(false);
   }
 
-  // Auto-run if no existing result
+  // Only auto-run if trade has no existing review
   useEffect(() => {
-    if (!result && !loading && !error) runReview();
+    if (!trade.autopsy_json && !result && !loading && !error) runReview();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

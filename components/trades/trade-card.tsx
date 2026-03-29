@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Trade } from "@/types/trade";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Brain, Image as ImageIcon, Pencil, Trash2, X, Loader2, Stethoscope } from "lucide-react";
+import { Image as ImageIcon, Pencil, Trash2, X, Loader2, Stethoscope } from "lucide-react";
 import { TradeReviewModal } from "./trade-review-modal";
 
 function directionColor(d: string) {
@@ -223,6 +223,7 @@ export function TradeCard({ trade }: { trade: Trade }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const pnlPositive = trade.pnl != null && trade.pnl >= 0;
+  const hasReview = !!trade.autopsy_json;
   const canReview = trade.status === "closed" || trade.result === "win" || trade.result === "loss" || trade.result === "breakeven";
 
   return (
@@ -246,9 +247,6 @@ export function TradeCard({ trade }: { trade: Trade }) {
             <div className="flex shrink-0 items-center gap-2">
               {trade.screenshot_url && (
                 <ImageIcon className="h-3.5 w-3.5 text-muted-foreground/40" />
-              )}
-              {trade.autopsy_json && (
-                <Stethoscope className="h-3.5 w-3.5 text-[#0EA5E9]" />
               )}
               {trade.result ? (
                 <Badge variant={resultVariant(trade.result)}>{trade.result}</Badge>
@@ -302,8 +300,13 @@ export function TradeCard({ trade }: { trade: Trade }) {
           {canReview && (
             <button
               onClick={() => setReviewOpen(true)}
-              className="rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-[#0EA5E9]/10 hover:text-[#0EA5E9]"
-              title="Trade Review"
+              className={cn(
+                "rounded-md p-1.5 transition-colors",
+                hasReview
+                  ? "text-[#0EA5E9] hover:bg-[#0EA5E9]/10"
+                  : "text-muted-foreground/60 hover:bg-[#0EA5E9]/10 hover:text-[#0EA5E9]"
+              )}
+              title={hasReview ? "View Review" : "Run Review"}
             >
               <Stethoscope className="h-3.5 w-3.5" />
             </button>

@@ -72,7 +72,11 @@ function EditableRow({
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export function MT5ImportButton() {
+interface MT5ImportButtonProps {
+  renderTrigger?: (onClick: () => void) => React.ReactNode;
+}
+
+export function MT5ImportButton({ renderTrigger }: MT5ImportButtonProps = {}) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>("idle");
@@ -167,14 +171,18 @@ export function MT5ImportButton() {
   return (
     <>
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-      <button
-        onClick={() => fileRef.current?.click()}
-        disabled={step === "extracting" || step === "importing"}
-        className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-4 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.08] disabled:opacity-50"
-      >
-        <Upload className="h-4 w-4" />
-        Import MT5
-      </button>
+      {renderTrigger ? (
+        renderTrigger(() => fileRef.current?.click())
+      ) : (
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={step === "extracting" || step === "importing"}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-4 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.08] disabled:opacity-50"
+        >
+          <Upload className="h-4 w-4" />
+          Import Screenshot
+        </button>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={close}>

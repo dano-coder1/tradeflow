@@ -27,7 +27,11 @@ type Step = "idle" | "uploading" | "parsing" | "preview" | "saving" | "done" | "
 
 const MAX_PREVIEW = 50;
 
-export function CSVImportButton() {
+interface CSVImportButtonProps {
+  renderTrigger?: (onClick: () => void) => React.ReactNode;
+}
+
+export function CSVImportButton({ renderTrigger }: CSVImportButtonProps = {}) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>("idle");
@@ -128,14 +132,18 @@ export function CSVImportButton() {
   return (
     <>
       <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFile} />
-      <button
-        onClick={() => fileRef.current?.click()}
-        disabled={step === "parsing" || step === "saving"}
-        className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-4 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.08] disabled:opacity-50"
-      >
-        <FileSpreadsheet className="h-4 w-4" />
-        Import CSV
-      </button>
+      {renderTrigger ? (
+        renderTrigger(() => fileRef.current?.click())
+      ) : (
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={step === "parsing" || step === "saving"}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-4 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.08] disabled:opacity-50"
+        >
+          <FileSpreadsheet className="h-4 w-4" />
+          Import CSV
+        </button>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={close}>

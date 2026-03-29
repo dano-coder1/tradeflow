@@ -6,11 +6,9 @@ import { TradeList } from "@/components/trades/trade-list";
 import { StrategyChat } from "@/components/strategy/strategy-chat";
 import { StrategyCard } from "@/components/strategy/strategy-card";
 import { ActiveAlertsPanel } from "@/components/dashboard/active-alerts-panel";
-import { MT5ImportButton } from "@/components/trades/mt5-import-button";
-import { CSVImportButton } from "@/components/trades/csv-import-button";
-import { MyPatterns } from "@/components/trades/my-patterns";
+import { AddTradeMenu } from "@/components/trades/add-trade-menu";
 import { TradingCalendar } from "@/components/dashboard/trading-calendar";
-import { Plus, Brain } from "lucide-react";
+import { Brain } from "lucide-react";
 import { Trade } from "@/types/trade";
 import { TraderProfile } from "@/types/trader-profile";
 
@@ -53,24 +51,11 @@ export default async function DashboardPage() {
           <h1 className="text-2xl font-extrabold tracking-tight text-gradient">Dashboard</h1>
           <p className="text-sm text-muted-foreground">{user.email}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <CSVImportButton />
-          <MT5ImportButton />
-          <Link
-            href="/trades/new"
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            <Plus className="h-4 w-4" />
-            New Trade
-          </Link>
-        </div>
+        <AddTradeMenu />
       </div>
 
       {/* Stats bar — full width */}
       <StatsCards trades={typedTrades} />
-
-      {/* Patterns — from autopsy data */}
-      <MyPatterns trades={typedTrades} />
 
       {/* 2-column layout */}
       <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
