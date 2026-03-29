@@ -3,21 +3,8 @@
 import { useState } from "react";
 import { ChevronDown, TrendingUp, TrendingDown, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { POSITIVE_TAGS, NEGATIVE_TAGS, tagLabel } from "@/lib/trade-tags";
 import type { Trade, TradeReview } from "@/types/trade";
-
-const POSITIVE_TAGS = new Set([
-  "good_patience", "correct_invalidation", "clean_execution", "good_risk_management",
-]);
-
-const NEGATIVE_TAGS = new Set([
-  "late_entry", "no_confirmation", "buy_in_premium", "sell_in_discount",
-  "liquidity_not_taken", "entered_before_bos", "revenge_trade", "bad_rr",
-  "overtrading", "sl_too_tight", "tp_too_early", "wrong_bias",
-]);
-
-function tagLabel(tag: string): string {
-  return tag.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 interface MyPatternsProps {
   trades: Trade[];

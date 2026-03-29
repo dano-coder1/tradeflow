@@ -46,6 +46,3 @@ export interface TradeReview {
   behavior_tags: string[];
   generated_at: string;
 }
-
-/** @deprecated Use TradeReview instead */
-export type AutopsyResult = TradeReview;

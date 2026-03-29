@@ -247,7 +247,7 @@ export function TradeCard({ trade }: { trade: Trade }) {
               {trade.screenshot_url && (
                 <ImageIcon className="h-3.5 w-3.5 text-muted-foreground/40" />
               )}
-              {(trade.autopsy_json || trade.ai_review_status === "done") && (
+              {trade.autopsy_json && (
                 <Stethoscope className="h-3.5 w-3.5 text-[#0EA5E9]" />
               )}
               {trade.result ? (

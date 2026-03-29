@@ -16,37 +16,6 @@ export interface ExtractTradeResponse {
   };
 }
 
-export interface ReviewTradeResponse {
-  summary: string;
-  setup_quality: number;
-  entry_quality: number;
-  risk_management: number;
-  strengths: string[];
-  mistakes: string[];
-  detected_smc_elements: {
-    bos: boolean;
-    choch: boolean;
-    liquidity_sweep: boolean;
-    order_block: boolean;
-    fvg: boolean;
-    premium_discount_context: boolean;
-    unclear_structure: boolean;
-  };
-  execution_feedback: {
-    entry_was_late: boolean;
-    sl_too_tight: boolean;
-    tp_realistic: boolean;
-    rr_good: boolean;
-  };
-  coach_note: string;
-  // Autopsy fields — populated when a trader profile/strategy exists
-  rule_adherence_score?: number;
-  execution_score?: number;
-  discipline_score?: number;
-  mistake_tags?: string[];
-  pattern_detection?: string[];
-}
-
 export interface SmcReasons {
   liquidity_sweep: boolean;
   bos: boolean;
