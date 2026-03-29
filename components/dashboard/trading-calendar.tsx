@@ -1,19 +1,18 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { ChevronLeft, ChevronRight, X, Calendar, Shield, ShieldAlert, ShieldOff, StickyNote } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Trade } from "@/types/trade";
+import {
+  type MarketEvent,
+  fetchMonthEvents,
+  preloadMonths,
+  isCached,
+} from "@/lib/calendar-cache";
+import { detectCurrency, formatPnL } from "@/lib/currency";
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-interface MarketEvent {
-  id: string;
-  title: string;
-  time: string;
-  impact: "low" | "medium" | "high";
-  currency: string;
-}
 
 type SafetyStatus = "safe" | "caution" | "avoid";
 
@@ -36,15 +35,14 @@ function dateKey(d: Date): string {
 
 function todayKey(): string { return dateKey(new Date()); }
 
+function monthKeyFromState(year: number, month: number): string {
+  return `${year}-${String(month + 1).padStart(2, "0")}`;
+}
+
 function computeSafety(events: MarketEvent[]): SafetyStatus {
-  let hasHigh = false;
-  let hasMedium = false;
   for (const e of events) {
-    if (e.impact === "high") hasHigh = true;
-    if (e.impact === "medium") hasMedium = true;
+    if (e.impact === "high") return "caution";
   }
-  if (hasHigh) return "caution";
-  if (hasMedium) return "safe";
   return "safe";
 }
 
@@ -81,19 +79,80 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
-  const [events, setEvents] = useState<MarketEvent[]>([]);
+  const [eventsByMonth, setEventsByMonth] = useState<Map<string, MarketEvent[]>>(new Map());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>(() => loadAllNotes());
   const [editingNote, setEditingNote] = useState(false);
   const [noteText, setNoteText] = useState("");
+  const initialPreloadDone = useRef(false);
 
-  // Fetch events
-  useEffect(() => {
-    fetch("/api/calendar/market-events")
-      .then((r) => r.json())
-      .then((d) => setEvents(d.events ?? []))
-      .catch(() => {});
+  // Detect account currency from trades
+  const currency = useMemo(() => detectCurrency(trades), [trades]);
+
+  // ── Event fetching with cache ──────────────────────────────────────────────
+
+  const loadMonth = useCallback(async (monthKey: string) => {
+    const events = await fetchMonthEvents(monthKey);
+    setEventsByMonth((prev) => {
+      const next = new Map(prev);
+      next.set(monthKey, events);
+      return next;
+    });
   }, []);
+
+  // Initial preload: current month + 3 months ahead
+  useEffect(() => {
+    if (initialPreloadDone.current) return;
+    initialPreloadDone.current = true;
+
+    const nowDate = new Date();
+    const y = nowDate.getFullYear();
+    const m = nowDate.getMonth();
+
+    // Load current month immediately
+    loadMonth(monthKeyFromState(y, m));
+
+    // Preload next 3 months in background
+    preloadMonths(y, m, 3);
+
+    // After a short delay, also load months 1-3 into state
+    const timer = setTimeout(() => {
+      for (let i = 1; i <= 3; i++) {
+        let futureM = m + i;
+        let futureY = y;
+        while (futureM > 11) { futureM -= 12; futureY++; }
+        loadMonth(monthKeyFromState(futureY, futureM));
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [loadMonth]);
+
+  // When user navigates to a new month, load it if not cached + preload next
+  useEffect(() => {
+    const key = monthKeyFromState(year, month);
+    if (!eventsByMonth.has(key)) {
+      loadMonth(key);
+    }
+    // Preload next month
+    let nextM = month + 1;
+    let nextY = year;
+    if (nextM > 11) { nextM = 0; nextY++; }
+    const nextKey = monthKeyFromState(nextY, nextM);
+    if (!isCached(nextKey)) {
+      fetchMonthEvents(nextKey).then((events) => {
+        setEventsByMonth((prev) => {
+          const next = new Map(prev);
+          next.set(nextKey, events);
+          return next;
+        });
+      });
+    }
+  }, [year, month, loadMonth, eventsByMonth]);
+
+  // ── Current month events ───────────────────────────────────────────────────
+
+  const currentMonthEvents = eventsByMonth.get(monthKeyFromState(year, month)) ?? [];
 
   // Group trades by date
   const tradesByDate = useMemo(() => {
@@ -110,26 +169,24 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
   // Group events by date
   const eventsByDate = useMemo(() => {
     const map = new Map<string, MarketEvent[]>();
-    for (const e of events) {
+    for (const e of currentMonthEvents) {
       const key = e.time.slice(0, 10);
       const arr = map.get(key) ?? [];
       arr.push(e);
       map.set(key, arr);
     }
     return map;
-  }, [events]);
+  }, [currentMonthEvents]);
 
   // Build calendar grid
   const calendarDays = useMemo(() => {
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
-    // Monday = 0
     let startOffset = firstDay.getDay() - 1;
     if (startOffset < 0) startOffset = 6;
 
     const days: (DayData | null)[] = [];
 
-    // Leading empty cells
     for (let i = 0; i < startOffset; i++) days.push(null);
 
     for (let d = 1; d <= lastDay.getDate(); d++) {
@@ -172,6 +229,7 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
     setNotes(loadAllNotes());
     setEditingNote(false);
   }, [selectedDay, noteText]);
+
   const monthLabel = new Date(year, month).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   function prevMonth() {
@@ -193,9 +251,9 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
           <span className="text-sm font-bold text-foreground">Trading Calendar</span>
         </div>
         <div className="flex items-center gap-1">
-          <button onClick={prevMonth} className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-white/[0.06]"><ChevronLeft className="h-3.5 w-3.5" /></button>
+          <button onClick={prevMonth} aria-label="Previous month" className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-white/[0.06]"><ChevronLeft className="h-3.5 w-3.5" /></button>
           <span className="text-xs font-medium text-foreground min-w-[120px] text-center">{monthLabel}</span>
-          <button onClick={nextMonth} className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-white/[0.06]"><ChevronRight className="h-3.5 w-3.5" /></button>
+          <button onClick={nextMonth} aria-label="Next month" className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-white/[0.06]"><ChevronRight className="h-3.5 w-3.5" /></button>
         </div>
       </div>
 
@@ -240,10 +298,10 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
               >
                 <span className={cn("text-[11px] font-medium", isToday ? "text-[#0EA5E9] font-bold" : "text-foreground")}>{dayNum}</span>
 
-                {/* Trade count + PnL indicator */}
+                {/* Trade count + PnL with currency */}
                 {day.tradeCount > 0 && (
                   <span className={cn("text-[8px] font-bold tabular-nums", day.pnl >= 0 ? "text-emerald-400/70" : "text-red-400/70")}>
-                    {day.pnl >= 0 ? "+" : ""}{day.pnl.toFixed(0)}
+                    {formatPnL(day.pnl, currency, true)}
                   </span>
                 )}
 
@@ -272,7 +330,7 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
               </span>
               <SafetyBadge status={selectedData.safety} />
             </div>
-            <button onClick={() => setSelectedDay(null)} className="rounded p-0.5 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+            <button onClick={() => setSelectedDay(null)} aria-label="Close day detail" className="rounded p-0.5 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
           </div>
 
           {/* Daily summary */}
@@ -282,7 +340,7 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
               {selectedData.wins > 0 && <span className="text-emerald-400">{selectedData.wins}W</span>}
               {selectedData.losses > 0 && <span className="text-red-400">{selectedData.losses}L</span>}
               <span className={cn("font-bold font-mono", selectedData.pnl >= 0 ? "text-emerald-400" : "text-red-400")}>
-                {selectedData.pnl >= 0 ? "+" : ""}{selectedData.pnl.toFixed(2)}
+                {formatPnL(selectedData.pnl, currency)}
               </span>
             </div>
           )}
@@ -302,7 +360,7 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
                   )}
                   {t.pnl != null && (
                     <span className={cn("ml-auto font-mono text-[10px] font-bold", t.pnl >= 0 ? "text-emerald-400" : "text-red-400")}>
-                      {t.pnl >= 0 ? "+" : ""}{t.pnl.toFixed(2)}
+                      {formatPnL(t.pnl, currency)}
                     </span>
                   )}
                 </div>
