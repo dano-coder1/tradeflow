@@ -20,7 +20,10 @@
       "Bash(find /c/Users/danoo/Documents/tradeflow/lib -type f \\\\\\(-name *.ts -o -name *.tsx \\\\\\))",
       "Bash(grep -E \"\\\\.\\(sql|ts\\)$\")",
       "Bash(mkdir -p C:/Users/danoo/Documents/tradeflow/app/api/trades/universal-csv-import/parse)",
-      "Bash(mkdir -p C:/Users/danoo/Documents/tradeflow/app/api/trades/universal-csv-import/save)"
+      "Bash(mkdir -p C:/Users/danoo/Documents/tradeflow/app/api/trades/universal-csv-import/save)",
+      "Bash(xargs grep:*)",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__apply_migration"
     ]
   }
 }

@@ -6,6 +6,7 @@ export interface DemoAccount {
   starting_balance: number;
   balance: number;
   equity: number;
+  leverage: number;
   created_at: string;
 }
 
@@ -17,12 +18,11 @@ export interface DemoPosition {
   direction: "buy" | "sell";
   size: number;
   entry_price: number;
+  contract_size: number;
   sl: number | null;
   tp: number | null;
   opened_at: string;
   status: "open";
-  /** Client-side only: live unrealized PnL */
-  unrealized_pnl?: number;
 }
 
 export interface DemoTrade {
@@ -34,6 +34,7 @@ export interface DemoTrade {
   size: number;
   entry_price: number;
   exit_price: number;
+  contract_size: number;
   sl: number | null;
   tp: number | null;
   pnl: number;

@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import {
+  getInstrument,
+  validateLotSize,
+  requiredMargin,
+} from "@/lib/trading/instruments";
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,20 +24,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Direction must be 'buy' or 'sell'" }, { status: 400 });
     }
 
-    if (Number(size) <= 0 || Number(entry_price) <= 0) {
+    const lots = Number(size);
+    const price = Number(entry_price);
+    if (lots <= 0 || price <= 0) {
       return NextResponse.json({ error: "Size and entry_price must be positive" }, { status: 400 });
+    }
+
+    // Get instrument config
+    const instrument = getInstrument(symbol);
+
+    // Validate lot size
+    const lotError = validateLotSize(lots, instrument);
+    if (lotError) {
+      return NextResponse.json({ error: lotError }, { status: 400 });
     }
 
     // Verify account belongs to user
     const { data: account, error: accErr } = await supabase
       .from("demo_accounts")
-      .select("id, balance")
+      .select("id, balance, leverage")
       .eq("id", account_id)
       .eq("user_id", user.id)
       .single();
 
     if (accErr || !account) {
       return NextResponse.json({ error: "Demo account not found" }, { status: 404 });
+    }
+
+    // Check margin
+    const leverage = account.leverage || 100;
+    const margin = requiredMargin(lots, instrument.contract_size, price, leverage);
+
+    if (margin > Number(account.balance)) {
+      return NextResponse.json({
+        error: `Insufficient margin. Required: $${margin.toFixed(2)}, Available: $${Number(account.balance).toFixed(2)}`,
+      }, { status: 400 });
     }
 
     const { data, error } = await supabase
@@ -42,8 +68,9 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         symbol: symbol.toUpperCase(),
         direction,
-        size: Number(size),
-        entry_price: Number(entry_price),
+        size: lots,
+        entry_price: price,
+        contract_size: instrument.contract_size,
         sl: sl != null ? Number(sl) : null,
         tp: tp != null ? Number(tp) : null,
       })

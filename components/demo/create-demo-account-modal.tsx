@@ -14,6 +14,13 @@ const BALANCE_OPTIONS = [
   { label: "$100,000", value: 100000 },
 ];
 
+const LEVERAGE_OPTIONS = [
+  { label: "1:50", value: 50 },
+  { label: "1:100", value: 100 },
+  { label: "1:200", value: 200 },
+  { label: "1:500", value: 500 },
+];
+
 interface Props {
   onClose: () => void;
   onCreated: (account: DemoAccount) => void;
@@ -21,6 +28,7 @@ interface Props {
 
 export function CreateDemoAccountModal({ onClose, onCreated }: Props) {
   const [selected, setSelected] = useState(10000);
+  const [leverage, setLeverage] = useState(100);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -31,7 +39,7 @@ export function CreateDemoAccountModal({ onClose, onCreated }: Props) {
       const res = await fetch("/api/demo/create-account", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ balance: selected, name: "Demo Account", currency: "USD" }),
+        body: JSON.stringify({ balance: selected, name: "Demo Account", currency: "USD", leverage }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to create account");
@@ -73,6 +81,26 @@ export function CreateDemoAccountModal({ onClose, onCreated }: Props) {
                   className={cn(
                     "rounded-lg border px-3 py-2.5 text-sm font-semibold transition-all",
                     selected === opt.value
+                      ? "border-[#8B5CF6]/50 bg-[#8B5CF6]/10 text-[#8B5CF6]"
+                      : "border-white/[0.08] bg-white/[0.03] text-foreground hover:bg-white/[0.06]"
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Leverage</p>
+            <div className="grid grid-cols-4 gap-2">
+              {LEVERAGE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setLeverage(opt.value)}
+                  className={cn(
+                    "rounded-lg border px-2 py-2 text-xs font-semibold transition-all",
+                    leverage === opt.value
                       ? "border-[#8B5CF6]/50 bg-[#8B5CF6]/10 text-[#8B5CF6]"
                       : "border-white/[0.08] bg-white/[0.03] text-foreground hover:bg-white/[0.06]"
                   )}

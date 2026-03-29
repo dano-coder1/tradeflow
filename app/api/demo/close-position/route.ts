@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { calculateDemoPnL } from "@/lib/trading/instruments";
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields: position_id, exit_price" }, { status: 400 });
     }
 
-    // Fetch position
+    // Fetch position (includes contract_size)
     const { data: pos, error: posErr } = await supabase
       .from("demo_positions")
       .select("*")
@@ -27,14 +28,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Position not found or already closed" }, { status: 404 });
     }
 
-    // Calculate PnL
+    // Calculate PnL using contract_size
     const exitP = Number(exit_price);
     const entryP = Number(pos.entry_price);
-    const sz = Number(pos.size);
-    const rawPnl = pos.direction === "buy"
-      ? (exitP - entryP) * sz
-      : (entryP - exitP) * sz;
-    const pnl = Number(rawPnl.toFixed(2));
+    const lots = Number(pos.size);
+    const contractSize = Number(pos.contract_size);
+
+    const pnl = calculateDemoPnL(
+      pos.direction as "buy" | "sell",
+      entryP,
+      exitP,
+      lots,
+      contractSize,
+    );
 
     const reason = close_reason && ["manual", "sl", "tp"].includes(close_reason)
       ? close_reason
@@ -48,9 +54,10 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         symbol: pos.symbol,
         direction: pos.direction,
-        size: sz,
+        size: lots,
         entry_price: entryP,
         exit_price: exitP,
+        contract_size: contractSize,
         sl: pos.sl,
         tp: pos.tp,
         pnl,
@@ -83,7 +90,7 @@ export async function POST(req: NextRequest) {
         .eq("id", pos.account_id);
     }
 
-    // 4. Optionally mirror to main trades table with source = 'sim'
+    // 4. Mirror to main trades table with source = 'sim'
     const direction = pos.direction === "buy" ? "long" : "short";
     const tradeResult = pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven";
 
@@ -97,7 +104,7 @@ export async function POST(req: NextRequest) {
         exit: exitP,
         sl: pos.sl,
         tp: pos.tp,
-        size: sz,
+        size: lots,
         pnl,
         rr: pos.sl ? Number(Math.abs((exitP - entryP) / (entryP - Number(pos.sl))).toFixed(2)) : null,
         status: "closed",

@@ -11,6 +11,7 @@ export async function POST(req: NextRequest) {
     const balance = Number(body.balance);
     const name = typeof body.name === "string" ? body.name.trim() : "Demo Account";
     const currency = typeof body.currency === "string" ? body.currency : "USD";
+    const leverage = Number(body.leverage) || 100;
 
     if (!balance || balance < 100 || balance > 10_000_000) {
       return NextResponse.json({ error: "Balance must be between 100 and 10,000,000" }, { status: 400 });
@@ -33,6 +34,7 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         name,
         currency,
+        leverage,
         starting_balance: balance,
         balance,
         equity: balance,
