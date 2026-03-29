@@ -7,6 +7,7 @@ export interface DemoAccount {
   balance: number;
   equity: number;
   leverage: number;
+  used_margin: number;
   created_at: string;
 }
 

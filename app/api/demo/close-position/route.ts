@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { calculateDemoPnL } from "@/lib/trading/instruments";
+import { calculateDemoPnL, requiredMargin } from "@/lib/trading/instruments";
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields: position_id, exit_price" }, { status: 400 });
     }
 
-    // Fetch position (includes contract_size)
+    // Fetch position
     const { data: pos, error: posErr } = await supabase
       .from("demo_positions")
       .select("*")
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Position not found or already closed" }, { status: 404 });
     }
 
-    // Calculate PnL using contract_size
+    // Calculate PnL (leverage does NOT affect PnL)
     const exitP = Number(exit_price);
     const entryP = Number(pos.entry_price);
     const lots = Number(pos.size);
@@ -75,18 +75,32 @@ export async function POST(req: NextRequest) {
       .delete()
       .eq("id", position_id);
 
-    // 3. Update account balance
+    // 3. Update account: balance += pnl, release margin, recalc equity
     const { data: account } = await supabase
       .from("demo_accounts")
-      .select("balance")
+      .select("balance, used_margin, leverage")
       .eq("id", pos.account_id)
       .single();
 
     if (account) {
-      const newBalance = Number(account.balance) + pnl;
+      const oldBalance = Number(account.balance);
+      const oldUsedMargin = Number(account.used_margin);
+      const leverage = account.leverage || 100;
+
+      // Margin that was locked for this position
+      const positionMargin = requiredMargin(lots, contractSize, entryP, leverage);
+
+      const newBalance = oldBalance + pnl;
+      const newUsedMargin = Math.max(0, oldUsedMargin - positionMargin);
+      const newEquity = newBalance; // no open positions' floating PnL in DB — computed client-side
+
       await supabase
         .from("demo_accounts")
-        .update({ balance: newBalance, equity: newBalance })
+        .update({
+          balance: Number(newBalance.toFixed(2)),
+          equity: Number(newEquity.toFixed(2)),
+          used_margin: Number(newUsedMargin.toFixed(2)),
+        })
         .eq("id", pos.account_id);
     }
 

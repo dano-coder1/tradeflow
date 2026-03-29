@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Wallet, TrendingUp, TrendingDown, Loader2, Plus, ChevronDown } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, Loader2, Plus, ChevronDown, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CreateDemoAccountModal } from "./create-demo-account-modal";
@@ -39,21 +39,18 @@ export function DemoTradingPanel({ symbol: externalSymbol = "EURUSD", currentPri
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [tab, setTab] = useState<"trade" | "positions" | "history">("trade");
 
-  // Symbol selection (can override external)
+  // Symbol selection
   const [localSymbol, setLocalSymbol] = useState(externalSymbol);
   const [showSymbolPicker, setShowSymbolPicker] = useState(false);
   const activeSymbol = localSymbol;
 
-  // Use external price when symbol matches, otherwise null (user must rely on market price feed)
   const currentPrice = activeSymbol === externalSymbol ? externalPrice : null;
 
-  // Sync when external symbol changes
   useEffect(() => { setLocalSymbol(externalSymbol); }, [externalSymbol]);
 
-  // Instrument config
   const instrument = useMemo(() => getInstrument(activeSymbol), [activeSymbol]);
 
-  // Trade form state
+  // Trade form
   const [direction, setDirection] = useState<"buy" | "sell">("buy");
   const [size, setSize] = useState("0.01");
   const [sl, setSl] = useState("");
@@ -66,13 +63,31 @@ export function DemoTradingPanel({ symbol: externalSymbol = "EURUSD", currentPri
   const sym = currencySymbol(cur);
   const leverage = account?.leverage ?? 100;
 
-  // ── Computed values ────────────────────────────────────────────────────────
+  // ── Unrealized PnL per position ────────────────────────────────────────────
+
+  function unrealizedPnl(p: DemoPosition): number {
+    if (!currentPrice || p.symbol !== activeSymbol) return 0;
+    return calculateDemoPnL(p.direction, Number(p.entry_price), currentPrice, Number(p.size), Number(p.contract_size));
+  }
+
+  // ── Account metrics (live) ────────────────────────────────────────────────
+
+  const floatingPnl = positions.reduce((sum, p) => sum + unrealizedPnl(p), 0);
+  const balance = Number(account?.balance ?? 0);
+  const usedMargin = Number(account?.used_margin ?? 0);
+  const equity = balance + floatingPnl;
+  const freeMargin = equity - usedMargin;
+  const marginLevel = usedMargin > 0 ? (equity / usedMargin) * 100 : Infinity;
+  const isMarginWarning = marginLevel < 150 && marginLevel !== Infinity;
+
+  // ── New order computed values ──────────────────────────────────────────────
 
   const lots = Number(size) || 0;
   const posValue = currentPrice ? positionValue(lots, instrument.contract_size, currentPrice) : 0;
-  const margin = currentPrice ? requiredMargin(lots, instrument.contract_size, currentPrice, leverage) : 0;
+  const orderMargin = currentPrice ? requiredMargin(lots, instrument.contract_size, currentPrice, leverage) : 0;
+  const canOpen = currentPrice != null && lots > 0 && orderMargin <= freeMargin;
 
-  // ── Fetch account + positions ──────────────────────────────────────────────
+  // ── Fetch ──────────────────────────────────────────────────────────────────
 
   const refresh = useCallback(async () => {
     try {
@@ -153,21 +168,6 @@ export function DemoTradingPanel({ symbol: externalSymbol = "EURUSD", currentPri
     }
   }
 
-  // ── Calculate unrealized PnL for a position ──────────────────────────────
-
-  function unrealizedPnl(p: DemoPosition): number {
-    if (!currentPrice) return 0;
-    // Only calculate for positions matching the currently-priced symbol
-    if (p.symbol !== activeSymbol) return 0;
-    return calculateDemoPnL(
-      p.direction,
-      Number(p.entry_price),
-      currentPrice,
-      Number(p.size),
-      Number(p.contract_size),
-    );
-  }
-
   // ── Loading / No Account ───────────────────────────────────────────────────
 
   if (loading) {
@@ -199,28 +199,45 @@ export function DemoTradingPanel({ symbol: externalSymbol = "EURUSD", currentPri
     );
   }
 
-  // ── Main Panel ─────────────────────────────────────────────────────────────
-
-  const totalOpenPnl = positions.reduce((sum, p) => sum + unrealizedPnl(p), 0);
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <>
       <div className="glass rounded-xl overflow-hidden">
-        {/* Account bar */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]">
-          <div className="flex items-center gap-2">
-            <span className="rounded bg-[#8B5CF6]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#8B5CF6] uppercase">SIM</span>
-            <span className="text-xs font-bold text-foreground">{sym}{Number(account.balance).toLocaleString()}</span>
-            <span className="text-[9px] text-muted-foreground">1:{leverage}</span>
+        {/* ── Account metrics bar ──────────────────────────────── */}
+        <div className="px-3 py-2 border-b border-white/[0.06] space-y-1.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-[#8B5CF6]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#8B5CF6] uppercase">SIM</span>
+              <span className="text-[9px] text-muted-foreground">1:{leverage}</span>
+            </div>
+            {isMarginWarning && (
+              <span className="flex items-center gap-1 text-[9px] font-bold text-amber-400">
+                <AlertTriangle className="h-3 w-3" /> Low Margin
+              </span>
+            )}
           </div>
+
+          {/* 4-column metrics */}
+          <div className="grid grid-cols-4 gap-1.5">
+            <MetricCell label="Balance" value={`${sym}${balance.toFixed(2)}`} />
+            <MetricCell label="Equity" value={`${sym}${equity.toFixed(2)}`} color={equity >= balance ? "text-emerald-400" : "text-red-400"} />
+            <MetricCell label="Used" value={`${sym}${usedMargin.toFixed(2)}`} />
+            <MetricCell label="Free" value={`${sym}${freeMargin.toFixed(2)}`} color={freeMargin < 0 ? "text-red-400" : undefined} />
+          </div>
+
+          {/* Floating PnL */}
           {positions.length > 0 && (
-            <span className={cn("text-[10px] font-bold font-mono", totalOpenPnl >= 0 ? "text-emerald-400" : "text-red-400")}>
-              P&L: {formatPnL(totalOpenPnl, cur)}
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] text-muted-foreground">Floating P&L</span>
+              <span className={cn("text-[10px] font-bold font-mono", floatingPnl >= 0 ? "text-emerald-400" : "text-red-400")}>
+                {formatPnL(floatingPnl, cur)}
+              </span>
+            </div>
           )}
         </div>
 
-        {/* Tabs */}
+        {/* ── Tabs ─────────────────────────────────────────────── */}
         <div className="flex border-b border-white/[0.06]">
           {(["trade", "positions", "history"] as const).map((t) => (
             <button
@@ -280,7 +297,7 @@ export function DemoTradingPanel({ symbol: externalSymbol = "EURUSD", currentPri
                 )}
               </div>
 
-              {/* Buy / Sell buttons */}
+              {/* Buy / Sell */}
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setDirection("buy")}
@@ -306,7 +323,7 @@ export function DemoTradingPanel({ symbol: externalSymbol = "EURUSD", currentPri
                 </button>
               </div>
 
-              {/* Size + info */}
+              {/* Size */}
               <div>
                 <label className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                   Size (Lots) · step {instrument.lot_step}
@@ -322,7 +339,7 @@ export function DemoTradingPanel({ symbol: externalSymbol = "EURUSD", currentPri
                 />
               </div>
 
-              {/* Position value + margin */}
+              {/* Position value + margin required */}
               {currentPrice != null && lots > 0 && (
                 <div className="grid grid-cols-2 gap-2 rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2">
                   <div>
@@ -330,9 +347,9 @@ export function DemoTradingPanel({ symbol: externalSymbol = "EURUSD", currentPri
                     <p className="text-xs font-mono font-semibold text-foreground">{sym}{posValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
                   </div>
                   <div>
-                    <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/60">Margin (1:{leverage})</p>
-                    <p className={cn("text-xs font-mono font-semibold", margin > Number(account.balance) ? "text-red-400" : "text-foreground")}>
-                      {sym}{margin.toFixed(2)}
+                    <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/60">Margin Req.</p>
+                    <p className={cn("text-xs font-mono font-semibold", orderMargin > freeMargin ? "text-red-400" : "text-foreground")}>
+                      {sym}{orderMargin.toFixed(2)}
                     </p>
                   </div>
                 </div>
@@ -369,7 +386,7 @@ export function DemoTradingPanel({ symbol: externalSymbol = "EURUSD", currentPri
               <Button
                 className="w-full"
                 loading={submitting}
-                disabled={!currentPrice || margin > Number(account.balance)}
+                disabled={!canOpen}
                 onClick={handleOpen}
               >
                 {direction === "buy" ? "Buy" : "Sell"} {activeSymbol}
@@ -452,6 +469,15 @@ export function DemoTradingPanel({ symbol: externalSymbol = "EURUSD", currentPri
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────
+
+function MetricCell({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div>
+      <p className="text-[8px] font-semibold uppercase tracking-widest text-muted-foreground/50">{label}</p>
+      <p className={cn("text-[10px] font-mono font-bold", color ?? "text-foreground")}>{value}</p>
+    </div>
+  );
+}
 
 function InstrumentBadge({ config }: { config: InstrumentConfig }) {
   const colors: Record<string, string> = {
