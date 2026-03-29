@@ -1,6 +1,7 @@
 export type TradeDirection = "long" | "short";
 export type TradeStatus = "open" | "closed" | "cancelled";
 export type TradeResult = "win" | "loss" | "breakeven" | null;
+export type TradeSource = "manual" | "csv" | "screenshot" | "sim";
 export type AIReviewStatus = "none" | "processing" | "done" | "failed";
 
 export interface Trade {
@@ -25,6 +26,7 @@ export interface Trade {
   trade_date: string;
   mt5_ticket: string | null;
   screenshot_url: string | null;
+  source: TradeSource;
   ai_extracted: boolean;
   ai_review_status: AIReviewStatus;
   ai_review_summary: string | null;

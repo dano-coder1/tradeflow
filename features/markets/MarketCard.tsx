@@ -110,9 +110,10 @@ export function formatPrice(price: number, symbol: string): string {
 interface MarketCardProps {
   instrument: MarketInstrument;
   onRemove?: (symbol: string) => void;
+  onSelect?: (symbol: string) => void;
 }
 
-export function MarketCard({ instrument, onRemove }: MarketCardProps) {
+export function MarketCard({ instrument, onRemove, onSelect }: MarketCardProps) {
   const { symbol, price, change, changePercent, sparkline, loading, error, marketStatus } = instrument;
   const isPositive = (change ?? 0) >= 0;
   const meta = getInstrumentMeta(symbol);
@@ -121,6 +122,7 @@ export function MarketCard({ instrument, onRemove }: MarketCardProps) {
     <div className="relative group">
       <Link
         href={`/dashboard/markets/${encodeURIComponent(symbol)}`}
+        onClick={() => onSelect?.(symbol)}
         className={cn(
           "glass rounded-xl overflow-hidden transition-all duration-200 hover:bg-white/[0.03] block",
           "border-t-2",

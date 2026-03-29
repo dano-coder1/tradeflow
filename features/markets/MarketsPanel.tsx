@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import { Plus } from "lucide-react";
 import { useMarketData } from "./useMarketData";
 import { Watchlist } from "./Watchlist";
+import { DemoTradingPanel } from "@/components/demo/demo-trading-panel";
 
 const DEFAULT_SYMBOLS = ["XAUUSD", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY", "GBPJPY", "NAS100", "US30", "USOIL"];
 const STORAGE_KEY = "tf:markets-v2";
@@ -29,6 +30,7 @@ function saveWatchlist(symbols: string[]) {
 export function MarketsPanel() {
   const [symbols, setSymbols] = useState<string[]>(DEFAULT_SYMBOLS);
   const [input, setInput] = useState("");
+  const [selectedSymbol, setSelectedSymbol] = useState<string>("XAUUSD");
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -98,8 +100,14 @@ export function MarketsPanel() {
         </form>
       </div>
 
-      {/* Watchlist grid */}
-      <Watchlist symbols={symbols} data={data} onRemove={removeSymbol} />
+      {/* Main layout: Watchlist + Demo Trading */}
+      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        <Watchlist symbols={symbols} data={data} onRemove={removeSymbol} onSelect={setSelectedSymbol} />
+        <DemoTradingPanel
+          symbol={selectedSymbol}
+          currentPrice={data[selectedSymbol]?.price ?? null}
+        />
+      </div>
     </div>
   );
 }

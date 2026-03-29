@@ -245,6 +245,9 @@ export function TradeCard({ trade }: { trade: Trade }) {
               <span className={cn("rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide", directionColor(trade.direction), directionBg(trade.direction))}>
                 {trade.direction}
               </span>
+              {trade.source === "sim" && (
+                <span className="rounded bg-[#8B5CF6]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#8B5CF6] uppercase">SIM</span>
+              )}
               {trade.timeframe && (
                 <span className="text-xs text-muted-foreground/50">{trade.timeframe}</span>
               )}

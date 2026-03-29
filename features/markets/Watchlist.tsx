@@ -7,9 +7,10 @@ interface WatchlistProps {
   symbols: string[];
   data: MarketDataMap;
   onRemove: (symbol: string) => void;
+  onSelect?: (symbol: string) => void;
 }
 
-export function Watchlist({ symbols, data, onRemove }: WatchlistProps) {
+export function Watchlist({ symbols, data, onRemove, onSelect }: WatchlistProps) {
   if (symbols.length === 0) {
     return (
       <div className="flex items-center justify-center rounded-xl border border-dashed border-white/[0.08] py-16">
@@ -39,6 +40,7 @@ export function Watchlist({ symbols, data, onRemove }: WatchlistProps) {
             key={symbol}
             instrument={instrument}
             onRemove={onRemove}
+            onSelect={onSelect}
           />
         );
       })}

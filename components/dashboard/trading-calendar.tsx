@@ -75,6 +75,8 @@ interface TradingCalendarProps {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
+type SourceFilter = "real" | "sim" | "all";
+
 export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -85,9 +87,18 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
   const [editingNote, setEditingNote] = useState(false);
   const [noteText, setNoteText] = useState("");
   const initialPreloadDone = useRef(false);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("real");
+  const hasSim = trades.some((t) => t.source === "sim");
+
+  // Filter trades by source
+  const filteredTrades = useMemo(() => {
+    if (sourceFilter === "all") return trades;
+    if (sourceFilter === "sim") return trades.filter((t) => t.source === "sim");
+    return trades.filter((t) => t.source !== "sim");
+  }, [trades, sourceFilter]);
 
   // Detect account currency from trades
-  const currency = useMemo(() => detectCurrency(trades), [trades]);
+  const currency = useMemo(() => detectCurrency(filteredTrades), [filteredTrades]);
 
   // ── Event fetching with cache ──────────────────────────────────────────────
 
@@ -157,14 +168,14 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
   // Group trades by date
   const tradesByDate = useMemo(() => {
     const map = new Map<string, Trade[]>();
-    for (const t of trades) {
+    for (const t of filteredTrades) {
       const key = t.trade_date.slice(0, 10);
       const arr = map.get(key) ?? [];
       arr.push(t);
       map.set(key, arr);
     }
     return map;
-  }, [trades]);
+  }, [filteredTrades]);
 
   // Group events by date
   const eventsByDate = useMemo(() => {
@@ -249,6 +260,24 @@ export function TradingCalendar({ trades = [] }: TradingCalendarProps) {
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-[#0EA5E9]" />
           <span className="text-sm font-bold text-foreground">Trading Calendar</span>
+          {hasSim && (
+            <div className="flex items-center gap-0.5 ml-1">
+              {(["real", "sim", "all"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setSourceFilter(f)}
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider transition-colors",
+                    sourceFilter === f
+                      ? f === "sim" ? "bg-[#8B5CF6]/15 text-[#8B5CF6]" : "bg-[#0EA5E9]/15 text-[#0EA5E9]"
+                      : "text-muted-foreground/50 hover:text-muted-foreground"
+                  )}
+                >
+                  {f === "real" ? "Real" : f === "sim" ? "Demo" : "All"}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <button onClick={prevMonth} aria-label="Previous month" className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-white/[0.06]"><ChevronLeft className="h-3.5 w-3.5" /></button>
