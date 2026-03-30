@@ -340,7 +340,7 @@ export function SymbolDetail({ symbol }: SymbolDetailProps) {
       )}
 
       {chartMode === "advanced" && (
-        <LightweightChart ref={lwChartRef} symbol={symbol} timeframe={timeframe} />
+        <LightweightChart ref={lwChartRef} symbol={symbol} timeframe={timeframe} livePrice={price} />
       )}
 
       {/* Decision Engine slide-out panel */}

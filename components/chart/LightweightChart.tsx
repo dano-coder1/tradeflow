@@ -44,12 +44,14 @@ function saveSmcSettings(s: SmcSettings) {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-import { type Timeframe } from "./TimeframeBar";
+import { type Timeframe, INTERVAL_SECONDS } from "./TimeframeBar";
 import React from "react";
 
 interface LightweightChartProps {
   symbol: string;
   timeframe?: Timeframe;
+  /** Live price from market data feed — drives candle updates */
+  livePrice?: number | null;
 }
 
 export interface LightweightChartHandle {
@@ -79,7 +81,7 @@ interface IndicatorSeries {
   stochLower?: ISeriesApi<"Line">;
 }
 
-export const LightweightChart = React.forwardRef<LightweightChartHandle, LightweightChartProps>(function LightweightChart({ symbol, timeframe = "1h" }, ref) {
+export const LightweightChart = React.forwardRef<LightweightChartHandle, LightweightChartProps>(function LightweightChart({ symbol, timeframe = "1h", livePrice }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -245,6 +247,47 @@ export const LightweightChart = React.forwardRef<LightweightChartHandle, Lightwe
       candleDataRef.current = [];
     };
   }, [symbol, timeframe]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Live price → update current candle or create new one ──────────────────
+  useEffect(() => {
+    if (livePrice == null || livePrice <= 0) return;
+    const series = seriesRef.current;
+    const candles = candleDataRef.current;
+    if (!series || candles.length === 0) return;
+
+    const intervalSec = INTERVAL_SECONDS[timeframe] ?? 3600;
+    const nowSec = Math.floor(Date.now() / 1000);
+    // Align to interval boundary (UTC)
+    const currentBarTime = Math.floor(nowSec / intervalSec) * intervalSec;
+
+    const lastCandle = candles[candles.length - 1];
+    const lastTime = lastCandle.time as number;
+
+    if (currentBarTime === lastTime) {
+      // Same interval — update in place
+      const updated: CandlestickData<Time> = {
+        time: lastCandle.time,
+        open: lastCandle.open,
+        high: Math.max(lastCandle.high as number, livePrice),
+        low: Math.min(lastCandle.low as number, livePrice),
+        close: livePrice,
+      };
+      candles[candles.length - 1] = updated;
+      series.update(updated);
+    } else if (currentBarTime > lastTime) {
+      // New interval — create new candle
+      const newCandle: CandlestickData<Time> = {
+        time: currentBarTime as Time,
+        open: lastCandle.close, // open at previous close
+        high: Math.max(lastCandle.close as number, livePrice),
+        low: Math.min(lastCandle.close as number, livePrice),
+        close: livePrice,
+      };
+      candles.push(newCandle);
+      series.update(newCandle);
+    }
+    // If currentBarTime < lastTime (historical data ahead of clock), skip
+  }, [livePrice, timeframe]);
 
   // ── Sync indicator series with visibility state ────────────────────────────
   useEffect(() => {
