@@ -24,7 +24,7 @@ const nextConfig: NextConfig = {
               // Styles: self + inline (Tailwind, lightweight-charts, TradingView widget)
               "style-src 'self' 'unsafe-inline'",
               // Images: self + data URIs (screenshots) + Supabase + TradingView
-              "img-src 'self' data: blob: https://ixechsvuamxwinqgxjbg.supabase.co https://*.tradingview.com",
+              "img-src 'self' data: blob: https://ixechsvuamxwinqgxjbg.supabase.co https://*.tradingview.com https://static.tradingview.com https://s3-symbol-logo.tradingview.com",
               // Fonts: self + TradingView
               "font-src 'self' https://*.tradingview.com",
               // Connect: self + all APIs + TradingView live data (HTTPS + WSS)
