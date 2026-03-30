@@ -11,15 +11,11 @@ export async function GET() {
       .from("demo_accounts")
       .select("*")
       .eq("user_id", user.id)
-      .limit(1)
-      .single();
+      .order("created_at", { ascending: true });
 
-    if (error) {
-      if (error.code === "PGRST116") return NextResponse.json({ account: null });
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-    return NextResponse.json({ account: data });
+    return NextResponse.json({ accounts: data ?? [] });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

@@ -27,6 +27,7 @@ interface Props {
 }
 
 export function CreateDemoAccountModal({ onClose, onCreated }: Props) {
+  const [name, setName] = useState("");
   const [selected, setSelected] = useState(10000);
   const [leverage, setLeverage] = useState(100);
   const [loading, setLoading] = useState(false);
@@ -39,7 +40,12 @@ export function CreateDemoAccountModal({ onClose, onCreated }: Props) {
       const res = await fetch("/api/demo/create-account", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ balance: selected, name: "Demo Account", currency: "USD", leverage }),
+        body: JSON.stringify({
+          balance: selected,
+          name: name.trim() || `Demo ${(selected / 1000).toFixed(0)}k`,
+          currency: "USD",
+          leverage,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to create account");
@@ -71,6 +77,20 @@ export function CreateDemoAccountModal({ onClose, onCreated }: Props) {
         </div>
 
         <div className="px-5 py-4 space-y-4">
+          {/* Account name */}
+          <div>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Account Name</p>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={`Demo ${(selected / 1000).toFixed(0)}k`}
+              maxLength={30}
+              className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-[#0EA5E9]/40"
+            />
+          </div>
+
+          {/* Balance */}
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Starting Balance</p>
             <div className="grid grid-cols-2 gap-2">
@@ -91,6 +111,7 @@ export function CreateDemoAccountModal({ onClose, onCreated }: Props) {
             </div>
           </div>
 
+          {/* Leverage */}
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Leverage</p>
             <div className="grid grid-cols-4 gap-2">
@@ -112,7 +133,7 @@ export function CreateDemoAccountModal({ onClose, onCreated }: Props) {
           </div>
 
           <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2 text-xs text-muted-foreground">
-            Paper trading uses simulated funds. No real money is involved.
+            Paper trading uses simulated funds. You can create up to 5 accounts.
           </div>
 
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}

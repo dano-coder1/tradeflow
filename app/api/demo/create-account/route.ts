@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
+const MAX_ACCOUNTS = 5;
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
@@ -9,7 +11,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const balance = Number(body.balance);
-    const name = typeof body.name === "string" ? body.name.trim() : "Demo Account";
+    const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : "Demo Account";
     const currency = typeof body.currency === "string" ? body.currency : "USD";
     const leverage = Number(body.leverage) || 100;
 
@@ -17,15 +19,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Balance must be between 100 and 10,000,000" }, { status: 400 });
     }
 
-    // Only allow 1 demo account per user for now
-    const { data: existing } = await supabase
-      .from("demo_accounts")
-      .select("id")
-      .eq("user_id", user.id)
-      .limit(1);
+    if (leverage < 10 || leverage > 2000) {
+      return NextResponse.json({ error: "Leverage must be between 10 and 2000" }, { status: 400 });
+    }
 
-    if (existing && existing.length > 0) {
-      return NextResponse.json({ error: "Demo account already exists", id: existing[0].id }, { status: 409 });
+    // Cap at MAX_ACCOUNTS per user
+    const { count } = await supabase
+      .from("demo_accounts")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id);
+
+    if ((count ?? 0) >= MAX_ACCOUNTS) {
+      return NextResponse.json({ error: `Maximum ${MAX_ACCOUNTS} demo accounts allowed` }, { status: 409 });
     }
 
     const { data, error } = await supabase
