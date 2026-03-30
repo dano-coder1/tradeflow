@@ -30,7 +30,7 @@ const nextConfig: NextConfig = {
               // Connect: self + all APIs + TradingView live data (HTTPS + WSS)
               "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.twelvedata.com https://api.binance.com https://*.tradingview.com wss://*.tradingview.com https://cdn.jsdelivr.net",
               // Frames: TradingView widget iframes
-              "frame-src https://*.tradingview.com https://www.tradingview.com",
+              "frame-src https://*.tradingview.com https://www.tradingview.com https://www.tradingview-widget.com https://*.tradingview-widget.com",
               // Workers: TradingView uses web workers
               "worker-src 'self' blob:",
               // Child-src: for workers + frames
