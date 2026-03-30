@@ -86,6 +86,7 @@ export function AssistantPanel({ profile }: Props) {
 
       <TodaysFocus profile={profile} />
       <DisciplineStreak />
+      <RealityCheck />
 
       <div className="grid gap-5 lg:grid-cols-[2fr_3fr]">
         {/* Left: Profile summary */}
@@ -339,7 +340,10 @@ function TodaysFocus({ profile }: { profile: AssistantProfile }) {
 // ── Discipline Streak ────────────────────────────────────────────────────────
 
 function DisciplineStreak() {
-  const [stats, setStats] = useState<{ focus_completed_count: number; current_streak: number; best_streak: number } | null>(null);
+  const [stats, setStats] = useState<{
+    focus_completed_count: number; current_streak: number; best_streak: number;
+    honest_completions: number; total_reflections: number;
+  } | null>(null);
 
   const fetchStats = useCallback(() => {
     fetch("/api/assistant/progress")
@@ -350,7 +354,6 @@ function DisciplineStreak() {
 
   useEffect(() => {
     fetchStats();
-    // Listen for updates from TodaysFocus
     window.addEventListener("tf:stats-changed", fetchStats);
     return () => window.removeEventListener("tf:stats-changed", fetchStats);
   }, [fetchStats]);
@@ -362,6 +365,10 @@ function DisciplineStreak() {
     : stats.current_streak >= 3
       ? "text-cyan-400"
       : "text-muted-foreground";
+
+  const realDiscipline = stats.total_reflections > 0
+    ? Math.round((stats.honest_completions / stats.total_reflections) * 100)
+    : 0;
 
   return (
     <div className="glass rounded-xl px-4 py-3">
@@ -387,8 +394,168 @@ function DisciplineStreak() {
             <p className="text-xs font-bold text-muted-foreground tabular-nums">{stats.focus_completed_count}</p>
             <p className="text-[8px] text-muted-foreground/50 uppercase tracking-wider">steps</p>
           </div>
+          {stats.total_reflections > 0 && (
+            <div className="border-l border-white/[0.06] pl-4">
+              <p className={cn("text-xs font-bold tabular-nums", realDiscipline >= 70 ? "text-emerald-400" : realDiscipline >= 40 ? "text-amber-400" : "text-red-400")}>
+                {realDiscipline}%
+              </p>
+              <p className="text-[8px] text-muted-foreground/50 uppercase tracking-wider">real</p>
+            </div>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Reality Check ────────────────────────────────────────────────────────────
+
+const BREAK_REASONS = [
+  "Entered without confirmation",
+  "Emotional trade",
+  "Ignored my rules",
+  "Market was unclear",
+  "Other",
+];
+
+function RealityCheck() {
+  const [show, setShow] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [submittedFollowed, setSubmittedFollowed] = useState<boolean | null>(null);
+  const [followed, setFollowed] = useState<boolean | null>(null);
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/assistant/reflection/today")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.reflection) {
+          // Already reflected today
+          setSubmitted(true);
+          setSubmittedFollowed(data.reflection.followed);
+        } else if (data.completed_focus_today) {
+          // Completed focus but no reflection yet
+          setShow(true);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleSubmit() {
+    if (followed === null) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/assistant/reflection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ followed, reason: !followed ? reason : null }),
+      });
+      if (res.ok) {
+        setSubmitted(true);
+        setSubmittedFollowed(followed);
+        window.dispatchEvent(new Event("tf:stats-changed"));
+      }
+    } catch {
+      // silent
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return null;
+
+  // Already submitted — show result briefly
+  if (submitted) {
+    if (submittedFollowed === null) return null;
+    return (
+      <div className={cn(
+        "rounded-xl border px-4 py-3",
+        submittedFollowed
+          ? "border-emerald-500/20 bg-emerald-500/[0.04]"
+          : "border-amber-500/20 bg-amber-500/[0.04]"
+      )}>
+        <div className="flex items-center gap-2">
+          {submittedFollowed
+            ? <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            : <Shield className="h-4 w-4 text-amber-400" />
+          }
+          <p className={cn("text-xs font-medium", submittedFollowed ? "text-emerald-400" : "text-amber-400")}>
+            {submittedFollowed
+              ? "Great. Keep the streak going."
+              : "Honest answer. That's how you improve. Tomorrow is a new day."
+            }
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!show) return null;
+
+  return (
+    <div className="glass rounded-xl px-4 py-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Shield className="h-4 w-4 text-amber-400" />
+        <p className="text-xs font-bold text-foreground">Did you actually follow your focus today?</p>
+      </div>
+
+      {followed === null ? (
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setFollowed(true)}
+            className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.04] py-2.5 text-xs font-bold text-emerald-400 transition-all hover:bg-emerald-500/10"
+          >
+            Yes, I followed it
+          </button>
+          <button
+            onClick={() => setFollowed(false)}
+            className="rounded-lg border border-red-500/20 bg-red-500/[0.04] py-2.5 text-xs font-bold text-red-400 transition-all hover:bg-red-500/10"
+          >
+            No, I broke it
+          </button>
+        </div>
+      ) : followed ? (
+        <div className="space-y-2">
+          <p className="text-xs text-emerald-400">Good. Confirming your discipline.</p>
+          <button
+            onClick={handleSubmit}
+            disabled={saving}
+            className="rounded-lg bg-emerald-500/15 px-4 py-2 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/25 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Confirm"}
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">What happened?</p>
+          <div className="flex flex-wrap gap-1.5">
+            {BREAK_REASONS.map((r) => (
+              <button
+                key={r}
+                onClick={() => setReason(r)}
+                className={cn(
+                  "rounded-lg border px-2.5 py-1.5 text-[10px] font-medium transition-all",
+                  reason === r
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
+                    : "border-white/[0.06] text-muted-foreground hover:bg-white/[0.04]"
+                )}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={handleSubmit}
+            disabled={saving || !reason}
+            className="rounded-lg bg-amber-500/15 px-4 py-2 text-xs font-semibold text-amber-400 hover:bg-amber-500/25 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Submit Reflection"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -67,6 +67,8 @@ export async function GET() {
         current_streak: stats?.current_streak ?? 0,
         best_streak: stats?.best_streak ?? 0,
         last_completed_date: stats?.last_completed_date ?? null,
+        honest_completions: stats?.honest_completions ?? 0,
+        total_reflections: stats?.total_reflections ?? 0,
       },
     });
   } catch {
