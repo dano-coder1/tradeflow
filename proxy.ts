@@ -1,6 +1,22 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://s3.tradingview.com https://*.tradingview.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https://ixechsvuamxwinqgxjbg.supabase.co https://*.tradingview.com https://static.tradingview.com https://s3-symbol-logo.tradingview.com",
+  "font-src 'self' https://*.tradingview.com",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.twelvedata.com https://api.binance.com https://*.tradingview.com wss://*.tradingview.com https://cdn.jsdelivr.net",
+  "frame-src https://*.tradingview.com https://www.tradingview.com https://www.tradingview-widget.com https://*.tradingview-widget.com",
+  "worker-src 'self' blob:",
+  "child-src 'self' blob: https://*.tradingview.com",
+  "media-src 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join("; ");
+
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -45,6 +61,16 @@ export async function proxy(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);
+  }
+
+  // Set CSP on page requests (not API or static assets)
+  const isPageRequest =
+    !pathname.startsWith("/api/") &&
+    !pathname.startsWith("/_next/") &&
+    !pathname.includes(".");
+
+  if (isPageRequest) {
+    supabaseResponse.headers.set("Content-Security-Policy", CSP);
   }
 
   return supabaseResponse;
