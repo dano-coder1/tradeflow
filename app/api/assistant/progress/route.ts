@@ -8,7 +8,6 @@ export async function GET() {
     const { data: { user }, error: authErr } = await supabase.auth.getUser();
     if (authErr || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // Load assistant profile
     const { data: profile } = await supabase
       .from("assistant_profiles")
       .select("biggest_problem")
@@ -37,6 +36,22 @@ export async function GET() {
       progress = created;
     }
 
+    // Load or create stats
+    let { data: stats } = await supabase
+      .from("assistant_stats")
+      .select("*")
+      .eq("user_id", user.id)
+      .single();
+
+    if (!stats) {
+      const { data: created } = await supabase
+        .from("assistant_stats")
+        .insert({ user_id: user.id })
+        .select("*")
+        .single();
+      stats = created;
+    }
+
     const index = progress?.current_focus_index ?? 0;
     const total = getTotalSteps(problem);
     const isCycleComplete = !!progress?.cycle_completed_at;
@@ -47,6 +62,12 @@ export async function GET() {
       current_focus: getFocusStep(problem, index),
       total_steps: total,
       is_cycle_complete: isCycleComplete,
+      stats: {
+        focus_completed_count: stats?.focus_completed_count ?? 0,
+        current_streak: stats?.current_streak ?? 0,
+        best_streak: stats?.best_streak ?? 0,
+        last_completed_date: stats?.last_completed_date ?? null,
+      },
     });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

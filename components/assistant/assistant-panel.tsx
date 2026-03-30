@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Sparkles, Target, Shield, Brain, BookOpen, Lightbulb, MessageCircle, CheckCircle2, ArrowRight, Flame, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AssistantProfile } from "@/types/assistant";
@@ -85,6 +85,7 @@ export function AssistantPanel({ profile }: Props) {
       </div>
 
       <TodaysFocus profile={profile} />
+      <DisciplineStreak />
 
       <div className="grid gap-5 lg:grid-cols-[2fr_3fr]">
         {/* Left: Profile summary */}
@@ -171,6 +172,7 @@ function TodaysFocus({ profile }: { profile: AssistantProfile }) {
   const [total, setTotal] = useState(4);
   const [cycleComplete, setCycleComplete] = useState(false);
   const [justAdvanced, setJustAdvanced] = useState(false);
+  const [streakMsg, setStreakMsg] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
   const [showExplain, setShowExplain] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -203,7 +205,13 @@ function TodaysFocus({ profile }: { profile: AssistantProfile }) {
         setTotal(data.total_steps ?? 4);
         setCycleComplete(data.is_cycle_complete ?? false);
         setJustAdvanced(true);
-        setTimeout(() => setJustAdvanced(false), 3000);
+        setTimeout(() => setJustAdvanced(false), 4000);
+        if (data.stats?.streak_message) {
+          setStreakMsg(data.stats.streak_message);
+          setTimeout(() => setStreakMsg(null), 5000);
+        }
+        // Notify streak component to refresh
+        window.dispatchEvent(new Event("tf:stats-changed"));
       }
     } catch {
       // silent
@@ -269,9 +277,9 @@ function TodaysFocus({ profile }: { profile: AssistantProfile }) {
 
         {/* Just advanced banner */}
         {justAdvanced && (
-          <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-[11px] text-emerald-400 font-medium animate-fade-in">
-            <CheckCircle2 className="inline h-3 w-3 mr-1" />
-            Step completed. Next focus unlocked.
+          <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-[11px] text-emerald-400 font-medium animate-fade-in space-y-1">
+            <p><CheckCircle2 className="inline h-3 w-3 mr-1" /> Step completed. Next focus unlocked.</p>
+            {streakMsg && <p className="text-[10px] text-emerald-400/70"><Flame className="inline h-3 w-3 mr-0.5" /> {streakMsg}</p>}
           </div>
         )}
 
@@ -322,6 +330,63 @@ function TodaysFocus({ profile }: { profile: AssistantProfile }) {
           >
             <Lightbulb className="h-3.5 w-3.5" /> {showExplain ? "Hide" : "Explain"}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Discipline Streak ────────────────────────────────────────────────────────
+
+function DisciplineStreak() {
+  const [stats, setStats] = useState<{ focus_completed_count: number; current_streak: number; best_streak: number } | null>(null);
+
+  const fetchStats = useCallback(() => {
+    fetch("/api/assistant/progress")
+      .then((r) => r.json())
+      .then((data) => { if (data.stats) setStats(data.stats); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchStats();
+    // Listen for updates from TodaysFocus
+    window.addEventListener("tf:stats-changed", fetchStats);
+    return () => window.removeEventListener("tf:stats-changed", fetchStats);
+  }, [fetchStats]);
+
+  if (!stats) return null;
+
+  const streakColor = stats.current_streak >= 7
+    ? "text-amber-400"
+    : stats.current_streak >= 3
+      ? "text-cyan-400"
+      : "text-muted-foreground";
+
+  return (
+    <div className="glass rounded-xl px-4 py-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Flame className={cn("h-4 w-4", streakColor)} />
+          <p className="text-xs font-bold text-foreground">Discipline Streak</p>
+        </div>
+        <div className="flex items-center gap-4 text-right">
+          <div>
+            <p className={cn("text-lg font-extrabold tabular-nums", streakColor)}>
+              {stats.current_streak}
+            </p>
+            <p className="text-[8px] text-muted-foreground/50 uppercase tracking-wider">
+              day{stats.current_streak !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <div className="border-l border-white/[0.06] pl-4">
+            <p className="text-xs font-bold text-muted-foreground tabular-nums">{stats.best_streak}</p>
+            <p className="text-[8px] text-muted-foreground/50 uppercase tracking-wider">best</p>
+          </div>
+          <div className="border-l border-white/[0.06] pl-4">
+            <p className="text-xs font-bold text-muted-foreground tabular-nums">{stats.focus_completed_count}</p>
+            <p className="text-[8px] text-muted-foreground/50 uppercase tracking-wider">steps</p>
+          </div>
         </div>
       </div>
     </div>
