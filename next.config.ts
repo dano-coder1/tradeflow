@@ -13,32 +13,31 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        // Apply to all routes
         source: "/(.*)",
         headers: [
           {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              // Scripts: self + TradingView embed (which uses eval internally)
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://s3.tradingview.com",
-              // Styles: self + inline (Tailwind, lightweight-charts)
+              // Scripts: self + TradingView (embed script uses eval + loads sub-scripts)
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://s3.tradingview.com https://*.tradingview.com",
+              // Styles: self + inline (Tailwind, lightweight-charts, TradingView widget)
               "style-src 'self' 'unsafe-inline'",
-              // Images: self + data URIs (screenshots) + Supabase storage
-              "img-src 'self' data: blob: https://ixechsvuamxwinqgxjbg.supabase.co",
-              // Fonts: self
-              "font-src 'self'",
-              // Connect: self + APIs used by the app
-              "connect-src 'self' https://*.supabase.co https://api.twelvedata.com https://api.binance.com https://*.tradingview.com https://cdn.jsdelivr.net wss://*.supabase.co",
+              // Images: self + data URIs (screenshots) + Supabase + TradingView
+              "img-src 'self' data: blob: https://ixechsvuamxwinqgxjbg.supabase.co https://*.tradingview.com",
+              // Fonts: self + TradingView
+              "font-src 'self' https://*.tradingview.com",
+              // Connect: self + all APIs + TradingView live data (HTTPS + WSS)
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.twelvedata.com https://api.binance.com https://*.tradingview.com wss://*.tradingview.com https://cdn.jsdelivr.net",
               // Frames: TradingView widget iframes
               "frame-src https://*.tradingview.com",
-              // Media: none needed
+              // Workers: TradingView uses web workers
+              "worker-src 'self' blob:",
+              // Child-src: for workers + frames
+              "child-src 'self' blob: https://*.tradingview.com",
               "media-src 'none'",
-              // Object: none
               "object-src 'none'",
-              // Base URI
               "base-uri 'self'",
-              // Form action
               "form-action 'self'",
             ].join("; "),
           },

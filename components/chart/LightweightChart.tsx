@@ -256,15 +256,15 @@ export const LightweightChart = React.forwardRef<LightweightChartHandle, Lightwe
     if (!series || candles.length === 0) return;
 
     const intervalSec = INTERVAL_SECONDS[timeframe] ?? 3600;
-    const nowSec = Math.floor(Date.now() / 1000);
-    // Align to interval boundary (UTC)
-    const currentBarTime = Math.floor(nowSec / intervalSec) * intervalSec;
-
     const lastCandle = candles[candles.length - 1];
     const lastTime = lastCandle.time as number;
 
-    if (currentBarTime === lastTime) {
-      // Same interval — update in place
+    // Compute when the next bar should start relative to the last candle's timestamp
+    const nextBarTime = lastTime + intervalSec;
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    if (nowSec < nextBarTime) {
+      // Still within the current (last) candle's interval — update in place
       const updated: CandlestickData<Time> = {
         time: lastCandle.time,
         open: lastCandle.open,
@@ -274,19 +274,22 @@ export const LightweightChart = React.forwardRef<LightweightChartHandle, Lightwe
       };
       candles[candles.length - 1] = updated;
       series.update(updated);
-    } else if (currentBarTime > lastTime) {
-      // New interval — create new candle
+    } else {
+      // New interval — create new candle aligned to the data's time grid
+      // Compute how many intervals have elapsed
+      const elapsed = Math.floor((nowSec - lastTime) / intervalSec);
+      const newBarTime = lastTime + elapsed * intervalSec;
+      const prevClose = lastCandle.close as number;
       const newCandle: CandlestickData<Time> = {
-        time: currentBarTime as Time,
-        open: lastCandle.close, // open at previous close
-        high: Math.max(lastCandle.close as number, livePrice),
-        low: Math.min(lastCandle.close as number, livePrice),
+        time: newBarTime as Time,
+        open: prevClose,
+        high: Math.max(prevClose, livePrice),
+        low: Math.min(prevClose, livePrice),
         close: livePrice,
       };
       candles.push(newCandle);
       series.update(newCandle);
     }
-    // If currentBarTime < lastTime (historical data ahead of clock), skip
   }, [livePrice, timeframe]);
 
   // ── Sync indicator series with visibility state ────────────────────────────

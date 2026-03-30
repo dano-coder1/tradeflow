@@ -54,22 +54,41 @@ interface TradingViewChartProps {
 
 export function TradingViewChart({ symbol, interval = "60" }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Track current props to avoid redundant reloads
+  const mountedRef = useRef<{ symbol: string; interval: string } | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    // Clear previous widget
-    el.innerHTML = "";
-
     const tvSymbol = getTradingViewSymbol(symbol);
     if (!tvSymbol) return;
 
-    const script = document.createElement("script");
-    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
-    script.async = true;
-    script.type = "text/javascript";
-    script.textContent = JSON.stringify({
+    // Skip reload if symbol + interval haven't changed (prevents stale re-render)
+    if (
+      mountedRef.current &&
+      mountedRef.current.symbol === tvSymbol &&
+      mountedRef.current.interval === interval
+    ) {
+      return;
+    }
+
+    // Clear previous widget completely
+    el.innerHTML = "";
+    mountedRef.current = { symbol: tvSymbol, interval };
+
+    // TradingView embed widget structure:
+    // <div class="tradingview-widget-container">
+    //   <div class="tradingview-widget-container__widget" />
+    //   <script src="..." textContent="{config JSON}" />
+    // </div>
+
+    const widgetDiv = document.createElement("div");
+    widgetDiv.className = "tradingview-widget-container__widget";
+    widgetDiv.style.height = "100%";
+    widgetDiv.style.width = "100%";
+
+    const config = {
       autosize: true,
       symbol: tvSymbol,
       interval,
@@ -89,22 +108,33 @@ export function TradingViewChart({ symbol, interval = "60" }: TradingViewChartPr
       withdateranges: true,
       details: false,
       studies: [],
-    });
+    };
 
-    const wrapper = document.createElement("div");
-    wrapper.className = "tradingview-widget-container__widget";
-    wrapper.style.height = "100%";
-    wrapper.style.width = "100%";
+    const script = document.createElement("script");
+    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+    script.async = true;
+    script.type = "text/javascript";
+    script.textContent = JSON.stringify(config);
 
-    el.appendChild(wrapper);
+    // Handle script load errors
+    script.onerror = () => {
+      console.error("[TradingView] Failed to load embed script");
+    };
+
+    el.appendChild(widgetDiv);
     el.appendChild(script);
 
     return () => {
+      mountedRef.current = null;
       el.innerHTML = "";
     };
   }, [symbol, interval]);
 
   return (
-    <div className="tradingview-widget-container" ref={containerRef} style={{ height: "100%", width: "100%" }} />
+    <div
+      className="tradingview-widget-container"
+      ref={containerRef}
+      style={{ height: "100%", width: "100%" }}
+    />
   );
 }
