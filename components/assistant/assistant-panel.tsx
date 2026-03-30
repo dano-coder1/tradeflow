@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Sparkles, Target, Shield, Brain, BookOpen, Lightbulb, MessageCircle, CheckCircle2, ArrowRight, Flame } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Sparkles, Target, Shield, Brain, BookOpen, Lightbulb, MessageCircle, CheckCircle2, ArrowRight, Flame, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AssistantProfile } from "@/types/assistant";
 import Link from "next/link";
@@ -157,62 +157,84 @@ export function AssistantPanel({ profile }: Props) {
   );
 }
 
-// ── Today's Focus ────────────────────────────────────────────────────────────
+// ── Today's Focus (API-driven with cycling) ─────────────────────────────────
 
-interface FocusContent {
+interface FocusData {
   title: string;
-  nextStep: string;
+  step: string;
   rule: string;
 }
 
-const FOCUS_MAP: Record<string, FocusContent> = {
-  overtrading: {
-    title: "Control overtrading",
-    nextStep: "Wait for confirmation before entry. No setup, no trade.",
-    rule: "If no clear setup \u2192 no trade",
-  },
-  late_entries: {
-    title: "Improve timing",
-    nextStep: "Wait for pullback instead of chasing price.",
-    rule: "No entry on extended candles",
-  },
-  emotions: {
-    title: "Control emotional trading",
-    nextStep: "Pause for 10 minutes after a loss before next trade.",
-    rule: "No revenge trades \u2014 ever",
-  },
-  no_strategy: {
-    title: "Define one setup",
-    nextStep: "Focus on a single repeatable setup today. Ignore everything else.",
-    rule: "No random trades",
-  },
-  no_review: {
-    title: "Start reviewing trades",
-    nextStep: "Review your last trade before opening a new one.",
-    rule: "No trade without review",
-  },
-};
-
-const FOCUS_FALLBACK: FocusContent = {
-  title: "Stay focused today",
-  nextStep: "Follow your trading plan. One setup, one execution.",
-  rule: "Plan the trade, trade the plan",
-};
-
 function TodaysFocus({ profile }: { profile: AssistantProfile }) {
-  const [done, setDone] = useState(false);
+  const [focus, setFocus] = useState<FocusData | null>(null);
+  const [index, setIndex] = useState(0);
+  const [total, setTotal] = useState(4);
+  const [cycleComplete, setCycleComplete] = useState(false);
+  const [justAdvanced, setJustAdvanced] = useState(false);
+  const [completing, setCompleting] = useState(false);
   const [showExplain, setShowExplain] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const focus = FOCUS_MAP[profile.biggest_problem] ?? FOCUS_FALLBACK;
+  // Fetch progress on mount
+  useEffect(() => {
+    fetch("/api/assistant/progress")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.current_focus) {
+          setFocus(data.current_focus);
+          setIndex(data.current_focus_index ?? 0);
+          setTotal(data.total_steps ?? 4);
+          setCycleComplete(data.is_cycle_complete ?? false);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
-  if (done) {
+  async function handleComplete() {
+    setCompleting(true);
+    setShowExplain(false);
+    try {
+      const res = await fetch("/api/assistant/progress/complete", { method: "POST" });
+      const data = await res.json();
+      if (data.current_focus) {
+        setFocus(data.current_focus);
+        setIndex(data.current_focus_index ?? 0);
+        setTotal(data.total_steps ?? 4);
+        setCycleComplete(data.is_cycle_complete ?? false);
+        setJustAdvanced(true);
+        setTimeout(() => setJustAdvanced(false), 3000);
+      }
+    } catch {
+      // silent
+    } finally {
+      setCompleting(false);
+    }
+  }
+
+  if (loading) {
     return (
-      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] px-5 py-4">
+      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-5 py-6 flex items-center justify-center">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!focus) return null;
+
+  const progress = ((index + 1) / total) * 100;
+
+  // Cycle complete state
+  if (cycleComplete) {
+    return (
+      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] px-5 py-4 space-y-2">
         <div className="flex items-center gap-3">
           <CheckCircle2 className="h-5 w-5 text-emerald-400" />
           <div>
-            <p className="text-sm font-bold text-emerald-400">Focus completed</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Great work. Stay disciplined for the rest of the session.</p>
+            <p className="text-sm font-bold text-emerald-400">Focus cycle completed</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              You&apos;ve worked through all {total} focus steps. Great discipline.
+            </p>
           </div>
         </div>
       </div>
@@ -221,11 +243,10 @@ function TodaysFocus({ profile }: { profile: AssistantProfile }) {
 
   return (
     <div className="relative rounded-xl border border-cyan-500/20 overflow-hidden">
-      {/* Subtle gradient background */}
       <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/[0.06] via-transparent to-violet-500/[0.04]" />
 
       <div className="relative px-5 py-4 space-y-4">
-        {/* Header */}
+        {/* Header + progress */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/15">
@@ -233,7 +254,26 @@ function TodaysFocus({ profile }: { profile: AssistantProfile }) {
             </div>
             <p className="text-xs font-bold text-cyan-400 uppercase tracking-widest">Today&apos;s Focus</p>
           </div>
+          <span className="text-[10px] font-bold text-muted-foreground tabular-nums">
+            {index + 1} / {total}
+          </span>
         </div>
+
+        {/* Progress bar */}
+        <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-violet-500 transition-all duration-500"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+
+        {/* Just advanced banner */}
+        {justAdvanced && (
+          <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-[11px] text-emerald-400 font-medium animate-fade-in">
+            <CheckCircle2 className="inline h-3 w-3 mr-1" />
+            Step completed. Next focus unlocked.
+          </div>
+        )}
 
         {/* Focus content */}
         <div className="space-y-3">
@@ -244,7 +284,7 @@ function TodaysFocus({ profile }: { profile: AssistantProfile }) {
               <ArrowRight className="h-3.5 w-3.5 mt-0.5 text-cyan-400 shrink-0" />
               <div>
                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Next step</p>
-                <p className="text-sm text-foreground mt-0.5">{focus.nextStep}</p>
+                <p className="text-sm text-foreground mt-0.5">{focus.step}</p>
               </div>
             </div>
 
@@ -262,34 +302,19 @@ function TodaysFocus({ profile }: { profile: AssistantProfile }) {
         {showExplain && (
           <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-4 py-3 text-xs text-muted-foreground leading-relaxed animate-fade-in">
             <p className="font-semibold text-foreground mb-1">Why this matters:</p>
-            {profile.biggest_problem === "overtrading" && (
-              <p>Overtrading is the #1 account killer. Every trade without a clear setup is a gamble. Your job today is to prove you can wait. Quality over quantity — always.</p>
-            )}
-            {profile.biggest_problem === "late_entries" && (
-              <p>Chasing price feels urgent, but it destroys your R:R. The best entries come from patience — wait for price to come to your level, not the other way around.</p>
-            )}
-            {profile.biggest_problem === "emotions" && (
-              <p>After a loss, your brain wants revenge. It tells you to &ldquo;make it back.&rdquo; That is a trap. The 10-minute pause breaks the cycle and lets logic return.</p>
-            )}
-            {profile.biggest_problem === "no_strategy" && (
-              <p>Trading without a system is just gambling with extra steps. Pick ONE setup today. Learn it. Master it. You can always add more later.</p>
-            )}
-            {profile.biggest_problem === "no_review" && (
-              <p>You can&apos;t fix what you don&apos;t measure. Reviewing forces you to see patterns in your behavior — the good ones and the destructive ones. Start before your next trade.</p>
-            )}
-            {!FOCUS_MAP[profile.biggest_problem] && (
-              <p>Discipline is doing the right thing when no one is watching. Follow your plan, respect your rules, and trust the process.</p>
-            )}
+            <p>This step builds on your previous progress. Completing it strengthens the habit and moves you closer to consistency. Focus on executing this one thing today — mastery comes from repetition, not information.</p>
           </div>
         )}
 
         {/* Actions */}
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setDone(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500/15 px-3.5 py-2 text-xs font-semibold text-cyan-400 transition-colors hover:bg-cyan-500/25"
+            onClick={handleComplete}
+            disabled={completing}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500/15 px-3.5 py-2 text-xs font-semibold text-cyan-400 transition-colors hover:bg-cyan-500/25 disabled:opacity-50"
           >
-            <CheckCircle2 className="h-3.5 w-3.5" /> Mark as done
+            {completing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            Mark as done
           </button>
           <button
             onClick={() => setShowExplain((v) => !v)}
