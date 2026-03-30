@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import { getAlerts, removeAlert, type StoredAlert } from "@/lib/alert-store";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, LayoutDashboard, ScanLine, Brain, BarChart3, GraduationCap, LogOut, Bell, X, Menu } from "lucide-react";
+import { TrendingUp, LayoutDashboard, ScanLine, Brain, BarChart3, GraduationCap, Sparkles, LogOut, Bell, X, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AddTradeMenu } from "@/components/trades/add-trade-menu";
 import FocusTrap from "focus-trap-react";
@@ -16,7 +16,8 @@ const NAV_LINKS = [
   { href: "/dashboard/analyze",  label: "Analyzer",  icon: ScanLine        },
   { href: "/dashboard/strategy", label: "Strategy",  icon: Brain           },
   { href: "/dashboard/markets",  label: "Markets",   icon: BarChart3       },
-  { href: "/dashboard/learn",    label: "Learn",     icon: GraduationCap   },
+  { href: "/dashboard/learn",      label: "Learn",     icon: GraduationCap   },
+  { href: "/dashboard/assistant", label: "Assistant", icon: Sparkles        },
 ];
 
 function AlertsIndicator() {

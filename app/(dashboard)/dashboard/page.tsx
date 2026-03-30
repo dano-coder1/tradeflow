@@ -7,9 +7,11 @@ import { StrategyChat } from "@/components/strategy/strategy-chat";
 import { StrategyCard } from "@/components/strategy/strategy-card";
 import { ActiveAlertsPanel } from "@/components/dashboard/active-alerts-panel";
 import { TradingCalendar } from "@/components/dashboard/trading-calendar";
+import { AssistantWelcomeCard } from "@/components/dashboard/assistant-welcome-card";
 import { Brain } from "lucide-react";
 import { Trade } from "@/types/trade";
 import { TraderProfile } from "@/types/trader-profile";
+import type { AssistantProfile } from "@/types/assistant";
 
 export default async function DashboardPage() {
   const supabase = await createServerSupabaseClient();
@@ -19,7 +21,7 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/login");
 
-  const [{ data: trades }, { data: profileData, error: profileError }] = await Promise.all([
+  const [{ data: trades }, { data: profileData, error: profileError }, { data: assistantData }] = await Promise.all([
     supabase
       .from("trades")
       .select("*")
@@ -31,16 +33,24 @@ export default async function DashboardPage() {
       .select("*")
       .eq("user_id", user.id)
       .single(),
+    supabase
+      .from("assistant_profiles")
+      .select("*")
+      .eq("user_id", user.id)
+      .single(),
   ]);
 
   if (profileError && profileError.code !== "PGRST116") {
-    // PGRST116 = no rows found, which is fine; anything else is a real error
     console.error("[dashboard] failed to fetch trader profile:", profileError);
   }
 
   const typedTrades = (trades ?? []) as Trade[];
   const profile = profileData as TraderProfile | null;
   const hasProfile = !!profile;
+  const assistantProfile = (assistantData as AssistantProfile) ?? null;
+
+  // Redirect new users to onboarding
+  if (!assistantProfile) redirect("/onboarding");
 
   return (
     <div className="space-y-6">
@@ -62,8 +72,10 @@ export default async function DashboardPage() {
           <TradeList initialTrades={typedTrades} />
         </div>
 
-        {/* ── RIGHT (40%): Calendar + Alerts + Coach + Strategy ── */}
+        {/* ── RIGHT (40%): Calendar + Assistant + Alerts + Coach + Strategy ── */}
         <div className="flex flex-col gap-5">
+          {assistantProfile && <AssistantWelcomeCard profile={assistantProfile} />}
+
           <TradingCalendar trades={typedTrades} />
           <ActiveAlertsPanel />
           <StrategyChat hasProfile={hasProfile} />
