@@ -96,6 +96,8 @@ export const LightweightChart = React.forwardRef<LightweightChartHandle, Lightwe
   const [loadingCandles, setLoadingCandles] = useState(true);
   const [candleError, setCandleError] = useState<string | null>(null);
   const [, setRenderTick] = useState(0);
+  // Incremented each time the chart is recreated so indicator effect re-fires
+  const [chartVersion, setChartVersion] = useState(0);
 
   // Persist SMC settings changes
   const handleSmcSettingsChange = useCallback((next: SmcSettings) => {
@@ -214,6 +216,7 @@ export const LightweightChart = React.forwardRef<LightweightChartHandle, Lightwe
         chart.timeScale().fitContent();
         computeSmc(candles);
         setLoadingCandles(false);
+        setChartVersion((n) => n + 1);
         setRenderTick((n) => n + 1);
       })
       .catch((err) => {
@@ -375,7 +378,7 @@ export const LightweightChart = React.forwardRef<LightweightChartHandle, Lightwe
       try { const panes = chart.panes(); if (panes[pIdx]) panes[pIdx].setHeight(120); } catch {}
     }
 
-  }, [indicators]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [indicators, chartVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Coordinate conversion callbacks
   const timeToCoord = useCallback((time: Time): number | null => {
