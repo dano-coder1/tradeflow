@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Sparkles, Target, Shield, Brain, BookOpen, Lightbulb, MessageCircle, CheckCircle2, ArrowRight, Flame, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AssistantProfile } from "@/types/assistant";
+import { getResponse, type ActionKey } from "@/lib/assistant/response-map";
 import Link from "next/link";
 
 const MODE_LABELS: Record<string, { label: string; color: string }> = {
@@ -14,12 +15,19 @@ const MODE_LABELS: Record<string, { label: string; color: string }> = {
   general_coach: { label: "Trading Coach", color: "text-foreground" },
 };
 
-const QUICK_ACTIONS = [
-  { label: "Explain my next step", icon: Lightbulb, color: "bg-[#0EA5E9]/10 text-[#0EA5E9] hover:bg-[#0EA5E9]/20" },
-  { label: "Help me build a strategy", icon: Brain, color: "bg-[#8B5CF6]/10 text-[#8B5CF6] hover:bg-[#8B5CF6]/20" },
-  { label: "Review my mistake", icon: Target, color: "bg-red-500/10 text-red-400 hover:bg-red-500/20" },
-  { label: "Teach me market structure", icon: BookOpen, color: "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" },
-  { label: "Simplify this setup", icon: MessageCircle, color: "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" },
+const QUICK_ACTIONS: { key: ActionKey; label: string; icon: typeof Lightbulb; color: string }[] = [
+  { key: "next_step", label: "Explain my next step", icon: Lightbulb, color: "bg-[#0EA5E9]/10 text-[#0EA5E9] hover:bg-[#0EA5E9]/20" },
+  { key: "build_strategy", label: "Help me build a strategy", icon: Brain, color: "bg-[#8B5CF6]/10 text-[#8B5CF6] hover:bg-[#8B5CF6]/20" },
+  { key: "review_mistake", label: "Review my mistake", icon: Target, color: "bg-red-500/10 text-red-400 hover:bg-red-500/20" },
+  { key: "market_structure", label: "Teach me market structure", icon: BookOpen, color: "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" },
+  { key: "simplify_setup", label: "Simplify this setup", icon: MessageCircle, color: "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20" },
+];
+
+const CHAT_PROMPTS: { key: ActionKey; label: string }[] = [
+  { key: "why_overtrade", label: "Why do I overtrade?" },
+  { key: "focus_today", label: "What should I focus on today?" },
+  { key: "explain_structure", label: "Explain market structure simply" },
+  { key: "avoid_bad_entries", label: "Help me avoid bad entries" },
 ];
 
 const PROFILE_FIELDS: { key: keyof AssistantProfile; label: string; icon: typeof Target }[] = [
@@ -117,43 +125,8 @@ export function AssistantPanel({ profile }: Props) {
           </div>
         </div>
 
-        {/* Right: Quick actions + chat placeholder */}
-        <div className="space-y-4">
-          <div className="glass rounded-xl p-4 space-y-3">
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Quick Actions</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {QUICK_ACTIONS.map((action) => (
-                <button
-                  key={action.label}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs font-medium transition-all text-left",
-                    action.color
-                  )}
-                >
-                  <action.icon className="h-4 w-4 shrink-0" />
-                  {action.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Chat placeholder */}
-          <div className="glass rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/[0.06]">
-              <div className="flex items-center gap-2">
-                <MessageCircle className="h-4 w-4 text-[#8B5CF6]" />
-                <p className="text-xs font-bold text-foreground">Assistant Chat</p>
-              </div>
-            </div>
-            <div className="px-4 py-8 text-center">
-              <Sparkles className="h-6 w-6 text-[#8B5CF6]/30 mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground">
-                Ask me anything about trading, your strategy, or your recent trades.
-              </p>
-              <p className="text-[10px] text-muted-foreground/50 mt-1">Chat coming soon</p>
-            </div>
-          </div>
-        </div>
+        {/* Right: Quick actions + response + chat */}
+        <InteractiveAssistant profile={profile} />
       </div>
     </div>
   );
@@ -556,6 +529,137 @@ function RealityCheck() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Interactive Assistant (Quick Actions + Response + Chat) ──────────────────
+
+const FOLLOW_UP_MAP: Record<string, ActionKey> = {
+  "Show me an example": "show_example",
+  "Make it simpler": "make_simpler",
+  "What should I avoid?": "what_avoid",
+  "Give me a rule": "give_rule",
+  "Break this down": "break_down",
+};
+
+function InteractiveAssistant({ profile }: { profile: AssistantProfile }) {
+  const [response, setResponse] = useState<{ message: string; followUps: string[] } | null>(null);
+  const [thinking, setThinking] = useState(false);
+  const [activeAction, setActiveAction] = useState<string | null>(null);
+
+  function handleAction(key: ActionKey, label: string) {
+    setThinking(true);
+    setActiveAction(label);
+    setResponse(null);
+
+    // Simulate thinking delay
+    const delay = 600 + Math.random() * 800;
+    setTimeout(() => {
+      const res = getResponse(key, profile);
+      setResponse(res);
+      setThinking(false);
+    }, delay);
+  }
+
+  function handleFollowUp(label: string) {
+    const key = FOLLOW_UP_MAP[label];
+    if (key) handleAction(key, label);
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Quick Actions */}
+      <div className="glass rounded-xl p-4 space-y-3">
+        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Quick Actions</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {QUICK_ACTIONS.map((action) => (
+            <button
+              key={action.key}
+              onClick={() => handleAction(action.key, action.label)}
+              className={cn(
+                "flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs font-medium transition-all text-left",
+                action.color,
+                activeAction === action.label && response && "ring-1 ring-white/[0.15]"
+              )}
+            >
+              <action.icon className="h-4 w-4 shrink-0" />
+              {action.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Response Panel */}
+      {(thinking || response) && (
+        <div className="glass rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-white/[0.06]">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-[#8B5CF6]" />
+              <p className="text-xs font-bold text-foreground">Assistant</p>
+              {activeAction && (
+                <span className="text-[10px] text-muted-foreground/50">
+                  {activeAction}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="px-4 py-4">
+            {thinking ? (
+              <div className="flex items-center gap-2 py-2">
+                <div className="flex gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#8B5CF6] animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#8B5CF6] animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#8B5CF6] animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+                <span className="text-xs text-muted-foreground">Assistant is thinking...</span>
+              </div>
+            ) : response && (
+              <div className="space-y-3 animate-fade-in">
+                <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">{response.message}</p>
+
+                {response.followUps.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {response.followUps.map((fu) => (
+                      <button
+                        key={fu}
+                        onClick={() => handleFollowUp(fu)}
+                        className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground transition-all hover:bg-[#8B5CF6]/10 hover:text-[#8B5CF6] hover:border-[#8B5CF6]/20"
+                      >
+                        {fu}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Chat area with suggested prompts */}
+      <div className="glass rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2">
+            <MessageCircle className="h-4 w-4 text-[#8B5CF6]" />
+            <p className="text-xs font-bold text-foreground">Ask the Assistant</p>
+          </div>
+        </div>
+        <div className="px-4 py-3 space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {CHAT_PROMPTS.map((prompt) => (
+              <button
+                key={prompt.key}
+                onClick={() => handleAction(prompt.key, prompt.label)}
+                className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[11px] text-muted-foreground transition-all hover:bg-[#8B5CF6]/8 hover:text-foreground hover:border-[#8B5CF6]/20"
+              >
+                {prompt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
