@@ -38,6 +38,49 @@ export function getActiveStrategy(): SavedStrategy | null {
   return strats.find((s) => s.id === id) ?? null;
 }
 
+/**
+ * Sync the active SavedStrategy to Supabase trader_profiles
+ * so the dashboard (server component) can display it.
+ */
+export async function syncActiveStrategyToProfile(strategy: SavedStrategy): Promise<void> {
+  try {
+    // Map SavedStrategy difficulty to TraderProfile experience_level
+    const experienceMap: Record<string, string> = {
+      beginner: "beginner",
+      intermediate: "intermediate",
+      advanced: "advanced",
+    };
+
+    // Map methodology tags to style
+    const tags = strategy.methodologyTags.map((t) => t.toLowerCase());
+    let style = "custom";
+    if (tags.includes("smc") || tags.includes("order-flow")) style = "smc";
+    else if (tags.includes("breakout") || tags.includes("session")) style = "breakout";
+    else if (tags.includes("scalping")) style = "scalping";
+
+    const strategyJson = {
+      entry_rules: strategy.rules,
+      exit_rules: [] as string[],
+      confirmation_rules: [] as string[],
+      risk_management: [] as string[],
+      non_negotiables: [] as string[],
+    };
+
+    await fetch("/api/trader-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        style,
+        experience_level: experienceMap[strategy.difficulty] ?? "intermediate",
+        strategy_json: strategyJson,
+        strategy_text: `${strategy.name}\n\n${strategy.summary}`,
+      }),
+    });
+  } catch {
+    // Non-critical — dashboard just won't show the strategy
+  }
+}
+
 // ── Curated strategies ───────────────────────────────────────────────────────
 
 export interface CuratedStrategy {

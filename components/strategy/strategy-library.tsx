@@ -9,9 +9,10 @@ import {
 import { cn } from "@/lib/utils";
 import {
   type SavedStrategy, type CuratedStrategy, CURATED_STRATEGIES,
-  loadStrategies, saveStrategies, loadActiveStrategyId, saveActiveStrategyId,
+  loadStrategies, saveStrategies, loadActiveStrategyId, saveActiveStrategyId, syncActiveStrategyToProfile,
 } from "@/lib/strategy-store";
 import { StrategyVisuals } from "./strategy-visuals";
+import { PlaybookTab } from "./playbook-tab";
 
 // ── Filter chips ─────────────────────────────────────────────────────────────
 
@@ -32,7 +33,7 @@ function DiffBadge({ d }: { d: string }) {
 
 // ── Tab type ─────────────────────────────────────────────────────────────────
 
-type Tab = "curated" | "search" | "custom" | "saved";
+type Tab = "curated" | "search" | "custom" | "saved" | "playbooks";
 
 // ── Main component ───────────────────────────────────────────────────────────
 
@@ -69,13 +70,18 @@ export function StrategyLibrary() {
   function setActive(id: string) {
     setActiveId(id);
     saveActiveStrategyId(id);
+    // Sync to Supabase so dashboard server component can display it
+    const strat = strategies.find((s) => s.id === id);
+    if (strat) syncActiveStrategyToProfile(strat);
   }
 
   function addStrat(s: SavedStrategy) {
     const next = [...strategies, s];
     setStrats(next);
     saveStrategies(next);
-    setActive(s.id);
+    setActiveId(s.id);
+    saveActiveStrategyId(s.id);
+    syncActiveStrategyToProfile(s);
   }
 
   function removeStrat(id: string) {
@@ -205,6 +211,7 @@ export function StrategyLibrary() {
     { key: "search", label: "Search", icon: Globe },
     { key: "custom", label: "My Own", icon: Wrench },
     { key: "saved", label: `Saved (${strategies.length})`, icon: BookOpen },
+    { key: "playbooks", label: "Playbooks", icon: BookOpen },
   ];
 
   return (
@@ -463,6 +470,8 @@ export function StrategyLibrary() {
           ))}
         </div>
       )}
+
+      {tab === "playbooks" && <PlaybookTab />}
     </div>
   );
 }
