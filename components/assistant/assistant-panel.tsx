@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { Sparkles, Target, Shield, Brain, BookOpen, Lightbulb, MessageCircle, CheckCircle2, ArrowRight, Flame, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AssistantProfile } from "@/types/assistant";
-import { getResponse, type ActionKey } from "@/lib/assistant/response-map";
+import type { ActionKey } from "@/lib/assistant/response-map";
+import { getResponse } from "@/lib/assistant/response-map";
 import Link from "next/link";
 
 const MODE_LABELS: Record<string, { label: string; color: string }> = {
@@ -553,13 +554,21 @@ function InteractiveAssistant({ profile }: { profile: AssistantProfile }) {
     setActiveAction(label);
     setResponse(null);
 
-    // Simulate thinking delay
-    const delay = 600 + Math.random() * 800;
-    setTimeout(() => {
-      const res = getResponse(key, profile);
-      setResponse(res);
-      setThinking(false);
-    }, delay);
+    fetch("/api/assistant/respond", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actionKey: key }),
+    })
+      .then((res) => res.ok ? res.json() : Promise.reject(new Error("API error")))
+      .then((data: { message: string; followUps: string[] }) => {
+        setResponse({ message: data.message, followUps: data.followUps });
+      })
+      .catch(() => {
+        // Fallback to hardcoded response-map
+        const res = getResponse(key, profile);
+        setResponse(res);
+      })
+      .finally(() => setThinking(false));
   }
 
   function handleFollowUp(label: string) {
