@@ -12,35 +12,31 @@ export async function GET(
 
     const { id: jobId } = await params;
 
-    // Single query: fetch the job with its results via join
-    // This ensures ownership check and result fetch happen atomically
+    // Step 1: verify job belongs to user
     const { data: job, error: jobErr } = await supabase
       .from("backtest_jobs")
-      .select("id, backtest_results(job_id, metrics, equity_curve, trades, summary)")
+      .select("id")
       .eq("id", jobId)
       .eq("user_id", user.id)
-      .single();
+      .maybeSingle();
 
-    if (jobErr || !job) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
+    if (jobErr || !job) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    // backtest_results is a one-to-one relation (unique on job_id),
-    // but supabase-js returns it as an array — take the first element
-    const results = Array.isArray(job.backtest_results)
-      ? job.backtest_results[0]
-      : job.backtest_results;
+    // Step 2: fetch results by job_id
+    const { data, error } = await supabase
+      .from("backtest_results")
+      .select("job_id, metrics, equity_curve, trades, summary")
+      .eq("job_id", jobId)
+      .maybeSingle();
 
-    if (!results) {
-      return NextResponse.json({ error: "Results not ready" }, { status: 404 });
-    }
+    if (error || !data) return NextResponse.json({ error: "Results not found" }, { status: 404 });
 
     return NextResponse.json({
-      job_id: results.job_id,
-      metrics: results.metrics,
-      equity_curve: results.equity_curve,
-      trades: results.trades,
-      summary: results.summary,
+      job_id: data.job_id,
+      metrics: data.metrics,
+      equity_curve: data.equity_curve,
+      trades: data.trades,
+      summary: data.summary,
     });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
