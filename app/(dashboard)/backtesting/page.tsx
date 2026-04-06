@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { createChart, LineSeries, type IChartApi } from "lightweight-charts";
+import { createChart, createSeriesMarkers, LineSeries, type IChartApi } from "lightweight-charts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,9 +34,14 @@ interface Trade {
   result: "win" | "loss";
 }
 
+interface EquityPoint {
+  ts: string;
+  equity: number;
+}
+
 interface BacktestResults {
   metrics: Metrics;
-  equity_curve: number[];
+  equity_curve: (EquityPoint | number)[];
   trades: Trade[];
 }
 
@@ -194,6 +199,10 @@ export default function BacktestingPage() {
   // Save strategy
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Chart marker filter
+  const [markerDay, setMarkerDay] = useState("all");
+  const [selectedTradeIdx, setSelectedTradeIdx] = useState<number | null>(null);
 
   // Job state
   const [status, setStatus] = useState<JobStatus>("idle");
@@ -410,6 +419,8 @@ export default function BacktestingPage() {
     setStatus("pending");
     setErrorMsg("");
     setResults(null);
+    setMarkerDay("all");
+    setSelectedTradeIdx(null);
 
     const dsl = {
       market: symbol,
@@ -474,8 +485,54 @@ export default function BacktestingPage() {
   // Equity Chart
   // -----------------------------------------------------------------------
 
+  // Detect legacy equity curve format
+  const isLegacyEquity = results
+    && Array.isArray(results.equity_curve)
+    && results.equity_curve.length > 0
+    && typeof results.equity_curve[0] === "number";
+
   useEffect(() => {
-    if (!results || !chartRef.current) return;
+    if (!results || !chartRef.current || isLegacyEquity) return;
+
+    const raw = results.equity_curve;
+    if (!raw || !Array.isArray(raw) || raw.length === 0) return;
+
+    // Parse any timestamp as UTC seconds — normalize to ISO 8601 with Z
+    function toUtcSeconds(ts: string): number {
+      // Replace space separator with T for ISO compliance
+      let s = ts.replace(" ", "T");
+      // Append Z if no timezone suffix present
+      if (!s.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(s)) {
+        s += "Z";
+      }
+      return Math.floor(Date.parse(s) / 1000);
+    }
+
+    const normalized = (raw as EquityPoint[])
+      .map((pt) => {
+        if (!pt?.ts) return null;
+        const time = toUtcSeconds(pt.ts);
+        if (isNaN(time)) return null;
+        return { time, value: pt.equity };
+      })
+      .filter((p): p is { time: number; value: number } => p !== null)
+      .sort((a, b) => a.time - b.time);
+
+    if (normalized.length === 0) return;
+
+    // Downsample large equity curves to keep the chart responsive
+    const maxPoints = 500;
+    let sampled: { time: number; value: number }[];
+    if (normalized.length <= maxPoints) {
+      sampled = normalized;
+    } else {
+      sampled = [normalized[0]];
+      const step = (normalized.length - 1) / (maxPoints - 1);
+      for (let j = 1; j < maxPoints - 1; j++) {
+        sampled.push(normalized[Math.round(j * step)]);
+      }
+      sampled.push(normalized[normalized.length - 1]);
+    }
 
     if (chartApi.current) {
       chartApi.current.remove();
@@ -494,7 +551,19 @@ export default function BacktestingPage() {
         horzLines: { color: "rgba(255,255,255,0.04)" },
       },
       rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" },
-      timeScale: { borderColor: "rgba(255,255,255,0.08)" },
+      timeScale: {
+        borderColor: "rgba(255,255,255,0.08)",
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: (time: number) => {
+          const d = new Date(time * 1000);
+          const day = d.getUTCDate();
+          const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getUTCMonth()];
+          const hh = String(d.getUTCHours()).padStart(2, "0");
+          const mm = String(d.getUTCMinutes()).padStart(2, "0");
+          return `${day} ${mon} ${hh}:${mm}`;
+        },
+      },
     });
 
     const series = chart.addSeries(LineSeries, {
@@ -502,12 +571,73 @@ export default function BacktestingPage() {
       lineWidth: 2,
     });
 
-    const curveData = results.equity_curve.map((val, i) => ({
-      time: (i + 1) as unknown as import("lightweight-charts").Time,
-      value: val,
-    }));
+    series.setData(sampled as { time: import("lightweight-charts").Time; value: number }[]);
 
-    series.setData(curveData);
+    // Trade markers — strict 1:1 from trades array
+    if (results.trades.length > 0) {
+      type Marker = { time: import("lightweight-charts").Time; position: "belowBar" | "aboveBar"; color: string; shape: "arrowUp" | "circle"; text: string };
+
+      function utcHHmm(utcSec: number): string {
+        const d = new Date(utcSec * 1000);
+        return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
+      }
+
+      function utcDate(utcSec: number): string {
+        return new Date(utcSec * 1000).toISOString().slice(0, 10);
+      }
+
+      // Filter trades based on selected day or selected trade row
+      const visibleTrades = results.trades.filter((t, i) => {
+        if (selectedTradeIdx !== null) return i === selectedTradeIdx;
+        if (markerDay === "all") return true;
+        const entryDay = utcDate(toUtcSeconds(t.entry_ts));
+        const exitDay = utcDate(toUtcSeconds(t.exit_ts));
+        return entryDay === markerDay || exitDay === markerDay;
+      });
+
+      const markers: Marker[] = [];
+
+      for (const t of visibleTrades) {
+        const entryUtc = toUtcSeconds(t.entry_ts);
+        const exitUtc = toUtcSeconds(t.exit_ts);
+
+        if (!isNaN(entryUtc)) {
+          markers.push({
+            time: entryUtc as unknown as import("lightweight-charts").Time,
+            position: "belowBar",
+            color: "#3b82f6",
+            shape: "arrowUp",
+            text: `Entry ${utcHHmm(entryUtc)}`,
+          });
+        }
+
+        if (!isNaN(exitUtc)) {
+          const label = t.pnl > 0 ? "WIN" : "LOSS";
+          markers.push({
+            time: exitUtc as unknown as import("lightweight-charts").Time,
+            position: "aboveBar",
+            color: t.pnl > 0 ? "#22c55e" : "#ef4444",
+            shape: "circle",
+            text: `${label} ${utcHHmm(exitUtc)}`,
+          });
+        }
+      }
+
+      // Apply time jitter to separate markers at the same timestamp
+      markers.sort((a, b) => (a.time as unknown as number) - (b.time as unknown as number));
+      for (let i = 1; i < markers.length; i++) {
+        const prev = markers[i - 1].time as unknown as number;
+        const curr = markers[i].time as unknown as number;
+        if (curr <= prev) {
+          (markers[i] as { time: unknown }).time = (prev + 1) as unknown as import("lightweight-charts").Time;
+        }
+      }
+
+      if (markers.length > 0) {
+        createSeriesMarkers(series, markers);
+      }
+    }
+
     chart.timeScale().fitContent();
     chartApi.current = chart;
 
@@ -521,7 +651,7 @@ export default function BacktestingPage() {
       chart.remove();
       chartApi.current = null;
     };
-  }, [results]);
+  }, [results, isLegacyEquity, markerDay, selectedTradeIdx]);
 
   // -----------------------------------------------------------------------
   // Render
@@ -786,6 +916,38 @@ export default function BacktestingPage() {
             />
           </div>
 
+          {/* Backtest Insights */}
+          {results.trades.length > 0 && (() => {
+            const ins = computeInsights(results.trades, results.metrics);
+            if (!ins) return null;
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">Backtest Insights</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+                    <MiniStat label="Avg Win" value={`$${ins.avgWin.toFixed(2)}`} positive />
+                    <MiniStat label="Avg Loss" value={`$${ins.avgLoss.toFixed(2)}`} positive={false} />
+                    <MiniStat label="Best Trade" value={`$${ins.bestTrade.pnl.toFixed(2)}`} positive />
+                    <MiniStat label="Worst Trade" value={`$${ins.worstTrade.pnl.toFixed(2)}`} positive={false} />
+                    <MiniStat label="Win Streak" value={`${ins.longestWin}`} />
+                    <MiniStat label="Loss Streak" value={`${ins.longestLoss}`} />
+                    <MiniStat label="Best Day" value={`$${ins.bestDay.pnl.toFixed(2)}`} sub={ins.bestDay.day} positive />
+                    <MiniStat label="Worst Day" value={`$${ins.worstDay.pnl.toFixed(2)}`} sub={ins.worstDay.day} positive={false} />
+                  </div>
+                  <div className="rounded-lg bg-white/[0.02] border border-white/[0.06] px-4 py-3 space-y-1">
+                    {ins.bullets.map((b, i) => (
+                      <p key={i} className="text-xs text-muted-foreground leading-relaxed">
+                        <span className="text-[#0EA5E9] mr-1.5">&#x2022;</span>{b}
+                      </p>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
           {/* Save Strategy + Equity Curve */}
           <div className="flex items-center gap-3">
             <Button onClick={handleSaveStrategy} loading={saving} disabled={saving} variant="outline" size="sm">
@@ -795,11 +957,51 @@ export default function BacktestingPage() {
           </div>
 
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-sm">Equity Curve</CardTitle>
+              {!isLegacyEquity && results.trades.length > 0 && (
+                <div className="flex items-center gap-2">
+                  {selectedTradeIdx !== null && (
+                    <button
+                      onClick={() => setSelectedTradeIdx(null)}
+                      className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                    >
+                      Clear selection
+                    </button>
+                  )}
+                  <select
+                    value={selectedTradeIdx !== null ? "__trade__" : markerDay}
+                    onChange={(e) => {
+                      setSelectedTradeIdx(null);
+                      setMarkerDay(e.target.value);
+                    }}
+                    className="h-7 rounded-md border border-white/[0.06] bg-white/[0.03] px-2 text-[11px] text-foreground focus:outline-none focus:border-[#0EA5E9]/50"
+                  >
+                    <option value="all">All days</option>
+                    {(() => {
+                      const days = new Set<string>();
+                      for (const t of results.trades) {
+                        const s = t.entry_ts.replace(" ", "T");
+                        const d = s.endsWith("Z") ? s : s + "Z";
+                        const day = new Date(d).toISOString().slice(0, 10);
+                        if (day !== "Invalid") days.add(day);
+                      }
+                      return Array.from(days).sort().map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ));
+                    })()}
+                  </select>
+                </div>
+              )}
             </CardHeader>
             <CardContent>
-              <div ref={chartRef} />
+              {isLegacyEquity ? (
+                <p className="text-xs text-muted-foreground py-8 text-center">
+                  This result uses an older equity format. Please rerun the backtest to view the chart.
+                </p>
+              ) : (
+                <div ref={chartRef} />
+              )}
             </CardContent>
           </Card>
 
@@ -822,7 +1024,11 @@ export default function BacktestingPage() {
                 </thead>
                 <tbody>
                   {results.trades.map((t, i) => (
-                    <tr key={i} className="border-b border-white/[0.03]">
+                    <tr
+                      key={i}
+                      onClick={() => setSelectedTradeIdx(selectedTradeIdx === i ? null : i)}
+                      className={`border-b border-white/[0.03] cursor-pointer transition-colors ${selectedTradeIdx === i ? "bg-[#0EA5E9]/10" : "hover:bg-white/[0.02]"}`}
+                    >
                       <td className="py-2 pr-4 text-muted-foreground">{formatTs(t.entry_ts)}</td>
                       <td className="py-2 pr-4 text-muted-foreground">{formatTs(t.exit_ts)}</td>
                       <td className="py-2 pr-4 uppercase">{t.direction}</td>
@@ -871,6 +1077,18 @@ function MetricCard({ label, value, positive }: { label: string; value: string |
   );
 }
 
+function MiniStat({ label, value, sub, positive }: { label: string; value: string; sub?: string; positive?: boolean }) {
+  return (
+    <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2">
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</p>
+      <p className={`text-sm font-bold mt-0.5 ${positive === true ? "text-emerald-400" : positive === false ? "text-red-400" : "text-foreground"}`}>
+        {value}
+      </p>
+      {sub && <p className="text-[10px] text-muted-foreground/60 mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
 function ConfirmField({ label, value }: { label: string; value?: string }) {
   return (
     <div>
@@ -878,6 +1096,86 @@ function ConfirmField({ label, value }: { label: string; value?: string }) {
       <p className="text-sm font-medium">{value || "-"}</p>
     </div>
   );
+}
+
+function computeInsights(trades: Trade[], metrics: Metrics) {
+  if (trades.length === 0) return null;
+
+  const wins = trades.filter((t) => t.result === "win");
+  const losses = trades.filter((t) => t.result === "loss");
+
+  const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0;
+  const avgLoss = losses.length > 0 ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length : 0;
+
+  const bestTrade = trades.reduce((best, t) => (t.pnl > best.pnl ? t : best), trades[0]);
+  const worstTrade = trades.reduce((worst, t) => (t.pnl < worst.pnl ? t : worst), trades[0]);
+
+  // Streaks
+  let longestWin = 0, longestLoss = 0, curWin = 0, curLoss = 0;
+  for (const t of trades) {
+    if (t.result === "win") { curWin++; curLoss = 0; longestWin = Math.max(longestWin, curWin); }
+    else { curLoss++; curWin = 0; longestLoss = Math.max(longestLoss, curLoss); }
+  }
+
+  // Daily PnL
+  const dayPnl = new Map<string, number>();
+  for (const t of trades) {
+    const day = t.exit_ts.replace(" ", "T").slice(0, 10);
+    dayPnl.set(day, (dayPnl.get(day) ?? 0) + t.pnl);
+  }
+  let bestDay = { day: "", pnl: -Infinity };
+  let worstDay = { day: "", pnl: Infinity };
+  for (const [day, pnl] of dayPnl) {
+    if (pnl > bestDay.pnl) bestDay = { day, pnl };
+    if (pnl < worstDay.pnl) worstDay = { day, pnl };
+  }
+
+  // Actionable coaching insights (max 4)
+  const avgRR = wins.length > 0 ? wins.reduce((s, t) => s + t.rr, 0) / wins.length : 0;
+  const bullets: string[] = [];
+
+  // Edge quality
+  if (metrics.profit_factor < 1.05) {
+    bullets.push(`Profit factor is only ${metrics.profit_factor.toFixed(2)}, meaning the strategy barely breaks even after costs. You need either higher RR or better entry filtering.`);
+  } else if (metrics.profit_factor >= 2.0) {
+    bullets.push(`Profit factor of ${metrics.profit_factor.toFixed(2)} is strong — winners carry the strategy. Focus on preserving this edge by not widening stops.`);
+  }
+
+  // Win rate vs RR
+  if (metrics.win_rate < 35) {
+    if (avgRR >= 2.5) {
+      bullets.push(`Win rate is ${metrics.win_rate}% with avg RR ${avgRR.toFixed(1)}. This is a valid low-frequency, high-reward model — but requires iron discipline through loss streaks.`);
+    } else {
+      bullets.push(`Win rate is ${metrics.win_rate}% with avg RR ${avgRR.toFixed(1)}. This combination is fragile — either improve entry accuracy or increase your reward target.`);
+    }
+  }
+
+  // Drawdown
+  if (metrics.max_drawdown > 0.1) {
+    bullets.push(`Max drawdown hit ${(metrics.max_drawdown * 100).toFixed(1)}%. At 1% risk per trade, this would feel like a ${Math.round(metrics.max_drawdown * 100)}% account loss. Consider tighter position sizing or adding a daily loss limit.`);
+  } else if (metrics.max_drawdown > 0.05) {
+    bullets.push(`Max drawdown of ${(metrics.max_drawdown * 100).toFixed(1)}% is moderate. Manageable with proper sizing, but watch for clustering losses.`);
+  }
+
+  // Loss streaks
+  if (longestLoss >= 8) {
+    bullets.push(`Longest loss streak is ${longestLoss} trades. Most traders abandon strategies after 5-6 losses. If you can't stomach this, reduce risk per trade or add a cooldown rule.`);
+  } else if (longestLoss >= 5) {
+    bullets.push(`Longest loss streak is ${longestLoss} trades — mentally demanding. Consider halving size after 3 consecutive losses as a circuit breaker.`);
+  }
+
+  if (bullets.length === 0) {
+    if (metrics.win_rate >= 50 && metrics.profit_factor >= 1.3) {
+      bullets.push(`Win rate ${metrics.win_rate}% with profit factor ${metrics.profit_factor.toFixed(2)} — this is a tradeable edge. Stay consistent with execution.`);
+    } else {
+      bullets.push("Metrics are within normal range. Run a longer backtest period to validate consistency.");
+    }
+  }
+
+  // Cap at 4
+  bullets.length = Math.min(bullets.length, 4);
+
+  return { avgWin, avgLoss, bestTrade, worstTrade, longestWin, longestLoss, bestDay, worstDay, bullets };
 }
 
 function formatCondition(c: Record<string, unknown>): string {

@@ -26,7 +26,23 @@ class RSIBelowCondition(BaseModel):
     value: float = Field(ge=0, le=100)
 
 
-Condition = EMAcrossCondition | RSIAboveCondition | RSIBelowCondition
+class SessionRangeCondition(BaseModel):
+    type: Literal["session_range"]
+    session: str
+
+
+class BreakoutCondition(BaseModel):
+    type: Literal["breakout"]
+    level: Literal["session_high", "session_low"]
+
+
+Condition = (
+    EMAcrossCondition
+    | RSIAboveCondition
+    | RSIBelowCondition
+    | SessionRangeCondition
+    | BreakoutCondition
+)
 
 
 # --- Exit ---
@@ -105,7 +121,12 @@ class Metrics(BaseModel):
     avg_loss: float
 
 
+class EquityPoint(BaseModel):
+    ts: str
+    equity: float
+
+
 class BacktestResult(BaseModel):
     metrics: Metrics
-    equity_curve: list[float]
+    equity_curve: list[EquityPoint]
     trades: list[TradeRecord]

@@ -3,7 +3,7 @@ from __future__ import annotations
 from engine.schema import Metrics
 
 
-def compute_metrics(trades: list[dict], equity_curve: list[float]) -> Metrics:
+def compute_metrics(trades: list[dict], equity_curve: list[dict]) -> Metrics:
     total = len(trades)
     if total == 0:
         return Metrics(
@@ -29,7 +29,7 @@ def compute_metrics(trades: list[dict], equity_curve: list[float]) -> Metrics:
     avg_win = gross_profit / len(wins) if wins else 0.0
     avg_loss = gross_loss / len(losses) if losses else 0.0
 
-    max_drawdown = _max_drawdown(equity_curve)
+    max_drawdown = _max_drawdown([p["equity"] for p in equity_curve])
 
     return Metrics(
         total_trades=total,

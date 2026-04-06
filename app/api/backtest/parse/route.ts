@@ -41,8 +41,20 @@ Return one of these two JSON shapes only:
 }
 
 Rules:
-- Supported condition types: ema_cross, rsi_above, rsi_below
-- Supported session values: london, new_york, asian, london_ny_overlap
+- Supported condition types (use ONLY these exact types):
+  - {"type": "ema_cross", "fast": N, "slow": N}
+  - {"type": "rsi_above", "period": N, "value": N}
+  - {"type": "rsi_below", "period": N, "value": N}
+  - {"type": "session_range", "session": "asian"|"london"|"new_york"|"sydney"|"tokyo"|"london_ny_overlap"}
+  - {"type": "breakout", "level": "session_high"|"session_low"}
+- For breakout strategies: ALWAYS include a session_range condition BEFORE the breakout condition
+- Example breakout conditions array:
+  [
+    {"type": "session_range", "session": "asian"},
+    {"type": "breakout", "level": "session_high"}
+  ]
+- NEVER use types like "breakout_high", "breakout_low", "session_breakout", or any other custom type
+- Supported session values: london, new_york, asian, tokyo, sydney, london_ny_overlap
 - Supported timeframes: 1m, 5m, 15m, 1h, 4h, 1d
 - Do not include date_range unless the user explicitly provides it
 - If market is missing, return error
@@ -107,8 +119,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Parser returned invalid structure" }, { status: 500 });
     }
 
+    // Normalize any malformed condition types
+    const dsl = parsed.dsl as Record<string, unknown>;
+    const entry = dsl.entry as Record<string, unknown> | undefined;
+    if (entry?.conditions && Array.isArray(entry.conditions)) {
+      entry.conditions = entry.conditions.flatMap((c: Record<string, unknown>) => {
+        if (c.type === "breakout_high" || c.type === "session_breakout_high") {
+          return [
+            { type: "session_range", session: (c as Record<string, unknown>).session ?? "asian" },
+            { type: "breakout", level: "session_high" },
+          ];
+        }
+        if (c.type === "breakout_low" || c.type === "session_breakout_low") {
+          return [
+            { type: "session_range", session: (c as Record<string, unknown>).session ?? "asian" },
+            { type: "breakout", level: "session_low" },
+          ];
+        }
+        if (c.type === "session_breakout") {
+          const level = (c as Record<string, unknown>).level;
+          return [
+            { type: "session_range", session: (c as Record<string, unknown>).session ?? "asian" },
+            { type: "breakout", level: level === "session_low" ? "session_low" : "session_high" },
+          ];
+        }
+        return [c];
+      });
+    }
+
     return NextResponse.json({
-      dsl: parsed.dsl,
+      dsl,
       assumptions: Array.isArray(parsed.assumptions) ? parsed.assumptions : [],
       warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
       needs_confirmation: true,

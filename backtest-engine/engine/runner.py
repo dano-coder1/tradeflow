@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 
-from engine.candles import candle_in_session, generate_mock_candles
+from engine.candles import candle_in_session, compute_session_ranges, generate_mock_candles
 from engine.indicators import ema, rsi
 from engine.metrics import compute_metrics
 from engine.schema import BacktestResult, Metrics, StrategyDSL, TradeRecord
+
+logger = logging.getLogger(__name__)
 
 
 def run_backtest(strategy: StrategyDSL) -> BacktestResult:
@@ -24,7 +28,7 @@ def run_backtest(strategy: StrategyDSL) -> BacktestResult:
             session_names.extend(f.sessions)
 
     trades: list[dict] = []
-    equity_curve: list[float] = []
+    equity_curve: list[dict] = [{"ts": df.iloc[0]["ts"].isoformat(), "equity": 10_000.0}]
     equity = 10_000.0
     open_trade: dict | None = None
 
@@ -32,12 +36,15 @@ def run_backtest(strategy: StrategyDSL) -> BacktestResult:
         row = df.iloc[i]
         prev = df.iloc[i - 1]
 
+        if row["ts"] is None:
+            continue
+
         if open_trade is not None:
             closed, pnl = _check_exit(open_trade, row, strategy)
             if closed:
                 commission = abs(pnl) * (strategy.commission_pct / 100)
                 pnl -= commission
-                open_trade["exit_ts"] = str(row["ts"])
+                open_trade["exit_ts"] = row["ts"].isoformat()
                 open_trade["exit_price"] = round(row["close"] if not closed else open_trade.get("_exit_price", row["close"]), 5)
                 open_trade["pnl"] = round(pnl, 4)
                 open_trade["result"] = "win" if pnl > 0 else "loss"
@@ -53,10 +60,10 @@ def run_backtest(strategy: StrategyDSL) -> BacktestResult:
 
         if open_trade is None:
             if session_names and not candle_in_session(row["ts"], session_names):
-                equity_curve.append(round(equity, 4))
+                equity_curve.append({"ts": row["ts"].isoformat(), "equity": round(equity, 4)})
                 continue
 
-            if _check_entry(prev, strategy):
+            if _check_entry(row, prev, strategy):
                 entry_price = row["close"]
                 direction = strategy.entry.direction
                 sl_pct = strategy.exit.stop_loss.value / 100
@@ -70,7 +77,7 @@ def run_backtest(strategy: StrategyDSL) -> BacktestResult:
                     tp = entry_price - (sl - entry_price) * rr_ratio
 
                 open_trade = {
-                    "entry_ts": str(row["ts"]),
+                    "entry_ts": row["ts"].isoformat(),
                     "exit_ts": "",
                     "direction": direction,
                     "entry_price": round(entry_price, 5),
@@ -82,7 +89,7 @@ def run_backtest(strategy: StrategyDSL) -> BacktestResult:
                     "result": "loss",
                 }
 
-        equity_curve.append(round(equity, 4))
+        equity_curve.append({"ts": row["ts"].isoformat(), "equity": round(equity, 4)})
 
     if open_trade is not None:
         last = df.iloc[-1]
@@ -91,7 +98,7 @@ def run_backtest(strategy: StrategyDSL) -> BacktestResult:
         raw_pnl = (exit_price - open_trade["entry_price"]) if direction == "long" else (open_trade["entry_price"] - exit_price)
         commission = abs(raw_pnl) * (strategy.commission_pct / 100)
         raw_pnl -= commission
-        open_trade["exit_ts"] = str(last["ts"])
+        open_trade["exit_ts"] = last["ts"].isoformat()
         open_trade["exit_price"] = round(exit_price, 5)
         open_trade["pnl"] = round(raw_pnl, 4)
         open_trade["result"] = "win" if raw_pnl > 0 else "loss"
@@ -103,7 +110,7 @@ def run_backtest(strategy: StrategyDSL) -> BacktestResult:
         )
         equity += raw_pnl
         trades.append({k: v for k, v in open_trade.items() if not k.startswith("_")})
-        equity_curve.append(round(equity, 4))
+        equity_curve.append({"ts": last["ts"].isoformat(), "equity": round(equity, 4)})
 
     metrics = compute_metrics(trades, equity_curve)
     trade_records = [TradeRecord(**t) for t in trades]
@@ -120,30 +127,67 @@ def _attach_indicators(df: pd.DataFrame, strategy: StrategyDSL) -> pd.DataFrame:
             col = f"rsi_{cond.period}"
             if col not in df.columns:
                 df[col] = rsi(df["close"], cond.period)
+        elif cond.type == "session_range":
+            if "session_high" not in df.columns:
+                df = compute_session_ranges(df, cond.session)
+                valid = df["session_high"].notna().sum()
+                logger.info(
+                    "Session range (%s): %d candles with valid range",
+                    cond.session, valid,
+                )
     return df
 
 
-def _check_entry(row: pd.Series, strategy: StrategyDSL) -> bool:
+def _check_entry(current: pd.Series, prev: pd.Series, strategy: StrategyDSL) -> bool:
+    """Check all entry conditions.
+
+    Indicator conditions (EMA, RSI) are evaluated on *prev* to avoid look-ahead.
+    Breakout conditions compare prev vs current close for cross detection.
+    """
     for cond in strategy.entry.conditions:
         if cond.type == "ema_cross":
             fast_col = f"ema_{cond.fast}"
             slow_col = f"ema_{cond.slow}"
-            if pd.isna(row.get(fast_col)) or pd.isna(row.get(slow_col)):
+            if pd.isna(prev.get(fast_col)) or pd.isna(prev.get(slow_col)):
                 return False
             if strategy.entry.direction == "long":
-                if row[fast_col] <= row[slow_col]:
+                if prev[fast_col] <= prev[slow_col]:
                     return False
             else:
-                if row[fast_col] >= row[slow_col]:
+                if prev[fast_col] >= prev[slow_col]:
                     return False
         elif cond.type == "rsi_above":
             col = f"rsi_{cond.period}"
-            if pd.isna(row.get(col)) or row[col] <= cond.value:
+            if pd.isna(prev.get(col)) or prev[col] <= cond.value:
                 return False
         elif cond.type == "rsi_below":
             col = f"rsi_{cond.period}"
-            if pd.isna(row.get(col)) or row[col] >= cond.value:
+            if pd.isna(prev.get(col)) or prev[col] >= cond.value:
                 return False
+        elif cond.type == "session_range":
+            # Data condition — just verify a valid range exists on current candle
+            if pd.isna(current.get("session_high")) or pd.isna(current.get("session_low")):
+                return False
+        elif cond.type == "breakout":
+            # Breakout: prev close on one side, current close crosses to the other
+            if pd.isna(current.get("session_high")) or pd.isna(current.get("session_low")):
+                return False
+            if cond.level == "session_high":
+                level = current["session_high"]
+                if not (prev["close"] <= level and current["close"] > level):
+                    return False
+                logger.debug(
+                    "Breakout HIGH at %s: close=%.5f > level=%.5f",
+                    current["ts"], current["close"], level,
+                )
+            elif cond.level == "session_low":
+                level = current["session_low"]
+                if not (prev["close"] >= level and current["close"] < level):
+                    return False
+                logger.debug(
+                    "Breakout LOW at %s: close=%.5f < level=%.5f",
+                    current["ts"], current["close"], level,
+                )
     return True
 
 

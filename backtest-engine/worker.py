@@ -60,7 +60,7 @@ def process_job(client, job: dict) -> None:
         client,
         job_id=job_id,
         metrics=result.metrics.model_dump(),
-        equity_curve=result.equity_curve,
+        equity_curve=[p.model_dump() for p in result.equity_curve],
         trades=[t.model_dump() for t in result.trades],
     )
 

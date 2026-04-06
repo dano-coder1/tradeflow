@@ -31,10 +31,20 @@ export async function GET(
 
     if (error || !data) return NextResponse.json({ error: "Results not found" }, { status: 404 });
 
+    // Handle legacy equity_curve format (number[] instead of {ts, equity}[])
+    let equityCurve = data.equity_curve;
+    if (Array.isArray(equityCurve) && equityCurve.length > 0 && typeof equityCurve[0] === "number") {
+      console.warn("OLD EQUITY FORMAT DETECTED for job", jobId);
+      equityCurve = (equityCurve as number[]).map((val: number, i: number) => ({
+        ts: new Date(2024, 0, 1, 0, i * 15).toISOString(),
+        equity: val,
+      }));
+    }
+
     return NextResponse.json({
       job_id: data.job_id,
       metrics: data.metrics,
-      equity_curve: data.equity_curve,
+      equity_curve: equityCurve,
       trades: data.trades,
       summary: data.summary,
     });
