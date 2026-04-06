@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { createChart, createSeriesMarkers, LineSeries, type IChartApi } from "lightweight-charts";
+import { createChart, createSeriesMarkers, CandlestickSeries, LineSeries, type IChartApi } from "lightweight-charts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,6 +74,17 @@ interface SavedStrategy {
   id: string;
   name: string;
   dsl: ParsedDSL;
+  created_at: string;
+}
+
+interface StrategyVersion {
+  id: string;
+  strategy_id: string;
+  version_number: number;
+  name: string;
+  dsl: ParsedDSL;
+  change_summary: StrategyChange[] | null;
+  source_type: string;
   created_at: string;
 }
 
@@ -204,6 +215,23 @@ export default function BacktestingPage() {
   const [markerDay, setMarkerDay] = useState("all");
   const [selectedTradeIdx, setSelectedTradeIdx] = useState<number | null>(null);
 
+  // Strategy improvement & comparison
+  const [improved, setImproved] = useState<ImprovedStrategy | null>(null);
+  const [comparison, setComparison] = useState<ComparisonState | null>(null);
+  const compPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Price chart candles (from Twelve Data: time is unix seconds)
+  const [candles, setCandles] = useState<{ time: number; open: number; high: number; low: number; close: number }[]>([]);
+  const priceChartRef = useRef<HTMLDivElement | null>(null);
+  const priceChartApi = useRef<IChartApi | null>(null);
+
+  // Version history
+  const [activeStrategyId, setActiveStrategyId] = useState<string | null>(null);
+  const [versions, setVersions] = useState<StrategyVersion[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [currentVersion, setCurrentVersion] = useState<number>(1);
+
   // Job state
   const [status, setStatus] = useState<JobStatus>("idle");
   const [errorMsg, setErrorMsg] = useState("");
@@ -219,6 +247,7 @@ export default function BacktestingPage() {
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      if (compPollRef.current) clearInterval(compPollRef.current);
     };
   }, []);
 
@@ -296,6 +325,141 @@ export default function BacktestingPage() {
       .finally(() => setParsing(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // -----------------------------------------------------------------------
+  // Run comparison backtest (improved DSL)
+  // -----------------------------------------------------------------------
+
+  const runComparisonBacktest = useCallback(async (comp: ComparisonState) => {
+    const dsl = {
+      ...comp.improvedDSL,
+      date_range: { from: dateFrom, to: dateTo },
+    };
+
+    setComparison((prev) => prev ? { ...prev, improvedStatus: "running", improvedError: "" } : prev);
+
+    try {
+      const createRes = await fetch("/api/backtest/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dsl }),
+      });
+      if (!createRes.ok) {
+        setComparison((prev) => prev ? { ...prev, improvedStatus: "failed", improvedError: "Failed to create job" } : prev);
+        return;
+      }
+      const { job_id } = await createRes.json();
+
+      compPollRef.current = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`/api/backtest/status/${job_id}`);
+          if (!statusRes.ok) return;
+          const statusData = await statusRes.json();
+
+          if (statusData.status === "completed") {
+            if (compPollRef.current) clearInterval(compPollRef.current);
+            const resultsRes = await fetch(`/api/backtest/results/${job_id}`);
+            if (resultsRes.ok) {
+              const r = await resultsRes.json();
+              setComparison((prev) => prev ? { ...prev, improvedResult: r, improvedStatus: "completed" } : prev);
+            }
+          } else if (statusData.status === "failed") {
+            if (compPollRef.current) clearInterval(compPollRef.current);
+            setComparison((prev) => prev ? { ...prev, improvedStatus: "failed", improvedError: statusData.error_message ?? "Backtest failed" } : prev);
+          }
+        } catch {
+          // keep polling
+        }
+      }, 2000);
+    } catch {
+      setComparison((prev) => prev ? { ...prev, improvedStatus: "failed", improvedError: "Network error" } : prev);
+    }
+  }, [dateFrom, dateTo]);
+
+  // -----------------------------------------------------------------------
+  // Version history
+  // -----------------------------------------------------------------------
+
+  const fetchVersions = useCallback(async (stratId: string) => {
+    setVersionsLoading(true);
+    try {
+      const res = await fetch(`/api/backtest/versions?strategy_id=${stratId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setVersions(data);
+        if (data.length > 0) {
+          setCurrentVersion(data[data.length - 1].version_number);
+        }
+      }
+    } catch {
+      // silent
+    } finally {
+      setVersionsLoading(false);
+    }
+  }, []);
+
+  const acceptAsNewVersion = useCallback(async (
+    improvedDSL: ParsedDSL,
+    changes: StrategyChange[],
+  ) => {
+    // If no active strategy, create one first
+    let stratId = activeStrategyId;
+    if (!stratId) {
+      const origDSL = {
+        market: symbol, timeframe,
+        entry: { direction: "long", conditions: [{ type: "ema_cross", fast: emaFast, slow: emaSlow }, { type: "rsi_above", period: 14, value: rsiThreshold }] },
+        exit: { stop_loss: { type: "fixed_pct", value: slPct }, take_profit: { type: "rr", ratio: rrRatio } },
+        filters: [], commission_pct: 0.07,
+      };
+      // Save original as strategy + v1
+      const createRes = await fetch("/api/backtest/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dsl: origDSL, saveOnly: true }),
+      });
+      if (!createRes.ok) return;
+      const { strategy_id } = await createRes.json();
+      stratId = strategy_id;
+      setActiveStrategyId(stratId);
+
+      // Save v1
+      await fetch("/api/backtest/versions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          strategy_id: stratId,
+          dsl: origDSL,
+          name: "v1 Original",
+          source_type: "original",
+          change_summary: [],
+        }),
+      });
+    }
+
+    // Save improved as next version
+    const nextV = currentVersion + 1;
+    const changeLabel = changes.map((c) => c.field).join(", ");
+    const res = await fetch("/api/backtest/versions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        strategy_id: stratId,
+        dsl: improvedDSL,
+        name: `v${nextV} ${changeLabel}`,
+        source_type: "improved",
+        change_summary: changes,
+      }),
+    });
+
+    if (res.ok) {
+      setCurrentVersion(nextV);
+      fillFormFromDSL(improvedDSL);
+      setImproved(null);
+      setComparison(null);
+      if (stratId) fetchVersions(stratId);
+      setShowHistory(true);
+    }
+  }, [activeStrategyId, currentVersion, symbol, timeframe, emaFast, emaSlow, rsiThreshold, slPct, rrRatio, fillFormFromDSL, fetchVersions]);
 
   // -----------------------------------------------------------------------
   // Fetch saved strategies
@@ -421,6 +585,8 @@ export default function BacktestingPage() {
     setResults(null);
     setMarkerDay("all");
     setSelectedTradeIdx(null);
+    setImproved(null);
+    setComparison(null);
 
     const dsl = {
       market: symbol,
@@ -466,6 +632,11 @@ export default function BacktestingPage() {
             if (resultsRes.ok) {
               const r = await resultsRes.json();
               setResults(r);
+              // Fetch candles for price chart
+              fetch(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`)
+                .then((cr) => cr.ok ? cr.json() : null)
+                .then((data) => { if (data?.candles) setCandles(data.candles); })
+                .catch(() => {});
             }
           } else if (statusData.status === "failed") {
             if (pollRef.current) clearInterval(pollRef.current);
@@ -652,6 +823,145 @@ export default function BacktestingPage() {
       chartApi.current = null;
     };
   }, [results, isLegacyEquity, markerDay, selectedTradeIdx]);
+
+  // -----------------------------------------------------------------------
+  // Price (Candlestick) Chart
+  // -----------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!results || !priceChartRef.current || candles.length === 0) return;
+
+    if (priceChartApi.current) {
+      priceChartApi.current.remove();
+      priceChartApi.current = null;
+    }
+
+    // Trade timestamp parser (handles both ISO and space-separated)
+    function tradeToUtc(ts: string): number {
+      let s = ts.replace(" ", "T");
+      if (!s.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(s)) s += "Z";
+      return Math.floor(Date.parse(s) / 1000);
+    }
+
+    const chart = createChart(priceChartRef.current, {
+      width: priceChartRef.current.clientWidth,
+      height: 400,
+      layout: {
+        background: { color: "transparent" },
+        textColor: "rgba(255,255,255,0.5)",
+      },
+      grid: {
+        vertLines: { color: "rgba(255,255,255,0.04)" },
+        horzLines: { color: "rgba(255,255,255,0.04)" },
+      },
+      rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" },
+      timeScale: {
+        borderColor: "rgba(255,255,255,0.08)",
+        timeVisible: true,
+        secondsVisible: false,
+      },
+    });
+
+    const series = chart.addSeries(CandlestickSeries, {
+      upColor: "#22c55e",
+      downColor: "#ef4444",
+      borderUpColor: "#22c55e",
+      borderDownColor: "#ef4444",
+      wickUpColor: "#22c55e80",
+      wickDownColor: "#ef444480",
+    });
+
+    // Candles already have time as unix seconds from /api/candles
+    const sorted = [...candles].sort((a, b) => a.time - b.time);
+    series.setData(sorted as { time: import("lightweight-charts").Time; open: number; high: number; low: number; close: number }[]);
+
+    // Trade markers
+    const visibleTrades = selectedTradeIdx !== null
+      ? [results.trades[selectedTradeIdx]]
+      : results.trades;
+
+    type PriceMarker = { time: import("lightweight-charts").Time; position: "belowBar" | "aboveBar"; color: string; shape: "arrowUp" | "arrowDown" | "circle"; text: string };
+    const markers: PriceMarker[] = [];
+
+    // Build set of candle times for snapping trade markers to nearest candle
+    const candleTimes = sorted.map((c) => c.time);
+    function snapToCandle(target: number): number {
+      let lo = 0, hi = candleTimes.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (candleTimes[mid] < target) lo = mid + 1;
+        else hi = mid;
+      }
+      if (lo > 0 && Math.abs(candleTimes[lo - 1] - target) < Math.abs(candleTimes[lo] - target)) {
+        return candleTimes[lo - 1];
+      }
+      return candleTimes[lo];
+    }
+
+    for (const t of visibleTrades) {
+      const entryUtc = tradeToUtc(t.entry_ts);
+      const exitUtc = tradeToUtc(t.exit_ts);
+      const isWin = t.pnl > 0;
+
+      if (!isNaN(entryUtc)) {
+        markers.push({
+          time: snapToCandle(entryUtc) as unknown as import("lightweight-charts").Time,
+          position: t.direction === "long" ? "belowBar" : "aboveBar",
+          color: isWin ? "#22c55e" : "#ef4444",
+          shape: t.direction === "long" ? "arrowUp" : "arrowDown",
+          text: `Entry $${t.entry_price.toFixed(2)}`,
+        });
+      }
+      if (!isNaN(exitUtc)) {
+        markers.push({
+          time: snapToCandle(exitUtc) as unknown as import("lightweight-charts").Time,
+          position: t.direction === "long" ? "aboveBar" : "belowBar",
+          color: isWin ? "#22c55e" : "#ef4444",
+          shape: "circle",
+          text: `${isWin ? "WIN" : "LOSS"} $${t.exit_price.toFixed(2)}`,
+        });
+      }
+    }
+
+    markers.sort((a, b) => (a.time as unknown as number) - (b.time as unknown as number));
+    for (let i = 1; i < markers.length; i++) {
+      const prev = markers[i - 1].time as unknown as number;
+      const curr = markers[i].time as unknown as number;
+      if (curr <= prev) {
+        (markers[i] as { time: unknown }).time = (prev + 1) as unknown as import("lightweight-charts").Time;
+      }
+    }
+
+    if (markers.length > 0) {
+      createSeriesMarkers(series, markers);
+    }
+
+    // Fit to selected trade or show all
+    if (selectedTradeIdx !== null) {
+      const t = results.trades[selectedTradeIdx];
+      const from = tradeToUtc(t.entry_ts) - 7200;
+      const to = tradeToUtc(t.exit_ts) + 7200;
+      chart.timeScale().setVisibleRange({
+        from: from as unknown as import("lightweight-charts").Time,
+        to: to as unknown as import("lightweight-charts").Time,
+      });
+    } else {
+      chart.timeScale().fitContent();
+    }
+
+    priceChartApi.current = chart;
+
+    const onResize = () => {
+      if (priceChartRef.current) chart.applyOptions({ width: priceChartRef.current.clientWidth });
+    };
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      chart.remove();
+      priceChartApi.current = null;
+    };
+  }, [results, candles, selectedTradeIdx]);
 
   // -----------------------------------------------------------------------
   // Render
@@ -921,32 +1231,333 @@ export default function BacktestingPage() {
             const ins = computeInsights(results.trades, results.metrics);
             if (!ins) return null;
             return (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm">Backtest Insights</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-                    <MiniStat label="Avg Win" value={`$${ins.avgWin.toFixed(2)}`} positive />
-                    <MiniStat label="Avg Loss" value={`$${ins.avgLoss.toFixed(2)}`} positive={false} />
-                    <MiniStat label="Best Trade" value={`$${ins.bestTrade.pnl.toFixed(2)}`} positive />
-                    <MiniStat label="Worst Trade" value={`$${ins.worstTrade.pnl.toFixed(2)}`} positive={false} />
-                    <MiniStat label="Win Streak" value={`${ins.longestWin}`} />
-                    <MiniStat label="Loss Streak" value={`${ins.longestLoss}`} />
-                    <MiniStat label="Best Day" value={`$${ins.bestDay.pnl.toFixed(2)}`} sub={ins.bestDay.day} positive />
-                    <MiniStat label="Worst Day" value={`$${ins.worstDay.pnl.toFixed(2)}`} sub={ins.worstDay.day} positive={false} />
+              <div className="space-y-3">
+                {/* ── ZONE A: STATUS ── */}
+                <div className={`glass rounded-xl p-4 border ${ins.verdict.border}`}>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider ${ins.verdict.color} ${ins.verdict.bg}`}>
+                      {ins.verdict.icon} {ins.verdict.label}
+                    </span>
+                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <span>PF <span className="text-foreground font-semibold">{results.metrics.profit_factor.toFixed(2)}</span></span>
+                      <span className="text-white/[0.06]">|</span>
+                      <span className={`font-semibold ${ins.expectancy >= 0 ? "text-emerald-400" : "text-red-400"}`}>${ins.expectancy.toFixed(2)}</span>
+                      <span className="text-muted-foreground/50">/ trade</span>
+                      <span className="text-white/[0.06]">|</span>
+                      <span className="text-muted-foreground/40">~${ins.expectancyPer100.toFixed(0)} per 100</span>
+                    </div>
                   </div>
-                  <div className="rounded-lg bg-white/[0.02] border border-white/[0.06] px-4 py-3 space-y-1">
-                    {ins.bullets.map((b, i) => (
-                      <p key={i} className="text-xs text-muted-foreground leading-relaxed">
-                        <span className="text-[#0EA5E9] mr-1.5">&#x2022;</span>{b}
-                      </p>
-                    ))}
+                  <p className="text-[11px] text-muted-foreground mt-2">{ins.verdict.subtext}</p>
+                </div>
+
+                {/* ── ZONE B: METRICS GRID ── */}
+                <div className="grid gap-2.5 grid-cols-2 md:grid-cols-4">
+                  <MiniStat label="Avg Win" value={`$${ins.avgWin.toFixed(2)}`} positive />
+                  <MiniStat label="Avg Loss" value={`$${ins.avgLoss.toFixed(2)}`} positive={false} />
+                  <MiniStat label="Best Trade" value={`$${ins.bestTrade.pnl.toFixed(2)}`} positive />
+                  <MiniStat label="Worst Trade" value={`$${ins.worstTrade.pnl.toFixed(2)}`} positive={false} />
+                  <MiniStat label="Win Streak" value={`${ins.longestWin}`} />
+                  <MiniStat label="Loss Streak" value={`${ins.longestLoss}`} />
+                  <MiniStat label="Best Day" value={`$${ins.bestDay.pnl.toFixed(2)}`} sub={ins.bestDay.day} positive />
+                  <MiniStat label="Worst Day" value={`$${ins.worstDay.pnl.toFixed(2)}`} sub={ins.worstDay.day} positive={false} />
+                </div>
+
+                {/* ── ZONE C: TRADING COACH ── */}
+                <div className="rounded-xl border border-[#8B5CF6]/15 bg-gradient-to-b from-[#8B5CF6]/[0.04] to-transparent p-[1px]">
+                  <div className="rounded-[11px] bg-[#0a0a0a] space-y-0 overflow-hidden">
+
+                    {/* 1. MAIN PROBLEM — red */}
+                    <div className="bg-red-950/40 border-b border-red-500/20 px-5 py-4">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-red-400 text-lg leading-none">&#x26A0;</span>
+                        <p className="text-sm font-extrabold text-red-400 uppercase tracking-wider">
+                          Main problem: {ins.mainProblem.label}
+                        </p>
+                      </div>
+                      <p className="text-xs text-red-200/50 mt-1.5 leading-relaxed">{ins.mainProblem.detail}</p>
+                      {ins.qualityScore < 50 && (
+                        <p className="text-xs text-red-400/80 font-bold mt-2">You will lose money trading this live.</p>
+                      )}
+                    </div>
+
+                    {/* 2. Score + Header — dark neutral */}
+                    <div className="px-5 py-4 flex items-start justify-between border-b border-white/[0.04] bg-[#111]/60">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[#8B5CF6] text-sm">&#x2728;</span>
+                          <h3 className="text-sm font-bold text-foreground">Trading Coach</h3>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground/50 mt-0.5">Based on your backtest results</p>
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <div className={`relative w-[4.5rem] h-[4.5rem] rounded-full flex items-center justify-center border-[3px] ${ins.qualityScore >= 75 ? "border-emerald-400/50 shadow-[0_0_30px_rgba(34,197,94,0.2)]" : ins.qualityScore >= 60 ? "border-[#0EA5E9]/50 shadow-[0_0_30px_rgba(14,165,233,0.2)]" : ins.qualityScore >= 40 ? "border-amber-400/50 shadow-[0_0_30px_rgba(245,158,11,0.2)]" : "border-red-400/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"} bg-white/[0.02]`}>
+                          <span className={`text-3xl font-black leading-none ${ins.qualityScore >= 75 ? "text-emerald-400" : ins.qualityScore >= 60 ? "text-[#0EA5E9]" : ins.qualityScore >= 40 ? "text-amber-400" : "text-red-400"}`}>
+                            {ins.qualityScore}
+                          </span>
+                        </div>
+                        <p className={`text-[9px] font-bold uppercase tracking-wider mt-1.5 ${ins.qualityScore >= 75 ? "text-emerald-400/80" : ins.qualityScore >= 60 ? "text-[#0EA5E9]/80" : ins.qualityScore >= 40 ? "text-amber-400/80" : "text-red-400/80"}`}>
+                          {ins.qualityLabel}
+                        </p>
+                        <p className="text-[9px] text-muted-foreground/50 mt-0.5">
+                          {ins.tradeabilityIcon} {ins.tradeabilityText}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 3. Coach voice — dark neutral */}
+                    <div className="px-5 py-3.5 border-b border-white/[0.04] bg-[#0e0e0e]">
+                      <div className="space-y-1.5 border-l-2 border-[#8B5CF6]/25 pl-3">
+                        {ins.coachLines.map((line, i) => (
+                          <p key={i} className="text-[11px] text-foreground/80 leading-relaxed">{line}</p>
+                        ))}
+                        <p className="text-[11px] text-red-400/70 font-semibold italic mt-0.5">{ins.realityCheck}</p>
+                      </div>
+                    </div>
+
+                    {/* 4. Key insights — dark neutral */}
+                    <div className="px-5 py-3.5 border-b border-white/[0.04] bg-[#0e0e0e] space-y-2">
+                      <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-wider">Key Insights</p>
+                      {ins.bullets.slice(0, 3).map((b, i) => (
+                        <div key={i} className="flex gap-2.5 text-[11px] leading-relaxed">
+                          <span className="text-[#0EA5E9] mt-0.5 shrink-0 text-[10px]">&#x25CF;</span>
+                          <span className="text-muted-foreground"
+                            dangerouslySetInnerHTML={{
+                              __html: b.replace(/\*\*(.+?)\*\*/g, '<span class="text-foreground font-semibold">$1</span>'),
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* 5. What to fix first — amber */}
+                    <div className="px-5 py-3.5 bg-amber-950/20 border-b border-amber-500/10">
+                      <p className="text-[10px] font-bold text-amber-400/70 uppercase tracking-wider mb-1.5">What to fix first</p>
+                      <div className="space-y-1.5">
+                        {ins.fixes.slice(0, 3).map((fix, i) => (
+                          <div key={i} className="flex gap-2 text-[11px] leading-relaxed">
+                            <span className="text-amber-400/60 mt-0.5 shrink-0 font-bold text-[10px]">{i + 1}.</span>
+                            <span className="text-muted-foreground">{fix}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 6. What to do next — blue */}
+                    <div className="px-5 py-4 bg-[#0EA5E9]/[0.06]">
+                      <p className="text-[10px] font-bold text-[#0EA5E9]/80 uppercase tracking-wider mb-1.5">&#x27A1; What to do next</p>
+                      <p className="text-xs text-foreground/80 font-medium leading-relaxed">{ins.nextStep}</p>
+                      <button
+                        onClick={() => {
+                          const currentDSL: ParsedDSL = {
+                            market: symbol, timeframe,
+                            entry: {
+                              direction: "long",
+                              conditions: [
+                                { type: "ema_cross", fast: emaFast, slow: emaSlow },
+                                { type: "rsi_above", period: 14, value: rsiThreshold },
+                              ],
+                            },
+                            exit: {
+                              stop_loss: { type: "fixed_pct", value: slPct },
+                              take_profit: { type: "rr", ratio: rrRatio },
+                            },
+                            filters: [],
+                            commission_pct: 0.07,
+                          };
+                          const result = generateImprovedStrategy(currentDSL, results.metrics, results.trades);
+                          setImproved(result);
+                        }}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#0EA5E9]/15 hover:bg-[#0EA5E9]/25 border border-[#0EA5E9]/20 px-4 py-2 text-xs font-semibold text-[#0EA5E9] transition-all duration-200"
+                      >
+                        Improve this strategy
+                      </button>
+                    </div>
+
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             );
           })()}
+
+          {/* Suggested Improved Strategy + Comparison */}
+          {improved && !comparison && (
+            <Card className="border border-emerald-500/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-emerald-400">Suggested Improved Strategy</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Changes diff */}
+                <div className="rounded-lg bg-white/[0.02] border border-white/[0.06] px-4 py-3 space-y-2">
+                  <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider">Changes</p>
+                  {improved.changes.map((c, i) => (
+                    <div key={i} className="flex items-center gap-2 text-[11px]">
+                      <span className="text-emerald-400 text-[10px]">&#x25B6;</span>
+                      <span className="text-foreground font-semibold">{c.field}:</span>
+                      <span className="text-red-400/70 line-through">{c.from}</span>
+                      <span className="text-muted-foreground/40">&#x2192;</span>
+                      <span className="text-emerald-400 font-semibold">{c.to}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Side-by-side summary */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] p-3">
+                    <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-wider mb-1">Original</p>
+                    <p className="text-[11px] text-muted-foreground">{summarizeDSL({
+                      market: symbol, timeframe,
+                      entry: { direction: "long", conditions: [{ type: "ema_cross", fast: emaFast, slow: emaSlow }, { type: "rsi_above", period: 14, value: rsiThreshold }] },
+                      exit: { stop_loss: { type: "fixed_pct", value: slPct }, take_profit: { type: "rr", ratio: rrRatio } },
+                      filters: [],
+                    })}</p>
+                  </div>
+                  <div className="rounded-lg bg-emerald-500/[0.03] border border-emerald-500/10 p-3">
+                    <p className="text-[10px] font-bold text-emerald-400/60 uppercase tracking-wider mb-1">Improved</p>
+                    <p className="text-[11px] text-muted-foreground">{summarizeDSL(improved.dsl)}</p>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-wrap gap-3">
+                  <Button size="sm" variant="outline" onClick={() => { fillFormFromDSL(improved.dsl); setImproved(null); }}>
+                    Use this strategy
+                  </Button>
+                  <Button size="sm" onClick={() => {
+                    const origDSL: ParsedDSL = {
+                      market: symbol, timeframe,
+                      entry: { direction: "long", conditions: [{ type: "ema_cross", fast: emaFast, slow: emaSlow }, { type: "rsi_above", period: 14, value: rsiThreshold }] },
+                      exit: { stop_loss: { type: "fixed_pct", value: slPct }, take_profit: { type: "rr", ratio: rrRatio } },
+                      filters: [], commission_pct: 0.07,
+                    };
+                    const comp: ComparisonState = {
+                      originalDSL: origDSL,
+                      improvedDSL: improved.dsl,
+                      changes: improved.changes,
+                      originalResult: results!,
+                      improvedResult: null,
+                      improvedStatus: "idle",
+                      improvedError: "",
+                    };
+                    setComparison(comp);
+                    setImproved(null);
+                    runComparisonBacktest(comp);
+                  }}>
+                    Compare strategies
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => acceptAsNewVersion(improved.dsl, improved.changes)}>
+                    Accept as new version
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setImproved(null)}>Dismiss</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Comparison Panel */}
+          {comparison && (
+            <Card className="border border-[#8B5CF6]/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Original vs Improved</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Changes */}
+                <div className="flex flex-wrap gap-2">
+                  {comparison.changes.map((c, i) => (
+                    <span key={i} className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.04] border border-white/[0.06] px-2.5 py-0.5 text-[10px] text-muted-foreground">
+                      <span className="font-semibold text-foreground">{c.field}:</span>
+                      <span className="text-red-400/70 line-through">{c.from}</span>
+                      <span>&#x2192;</span>
+                      <span className="text-emerald-400 font-semibold">{c.to}</span>
+                    </span>
+                  ))}
+                </div>
+
+                {/* Side-by-side DSL */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] p-3">
+                    <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-wider mb-1">Original</p>
+                    <p className="text-[11px] text-muted-foreground">{summarizeDSL(comparison.originalDSL)}</p>
+                  </div>
+                  <div className="rounded-lg bg-emerald-500/[0.03] border border-emerald-500/10 p-3">
+                    <p className="text-[10px] font-bold text-emerald-400/60 uppercase tracking-wider mb-1">Improved</p>
+                    <p className="text-[11px] text-muted-foreground">{summarizeDSL(comparison.improvedDSL)}</p>
+                  </div>
+                </div>
+
+                {/* Comparison metrics */}
+                {comparison.improvedStatus === "running" && (
+                  <div className="flex items-center gap-2 py-4 justify-center">
+                    <div className="h-4 w-4 rounded-full border-2 border-[#0EA5E9] border-t-transparent animate-spin" />
+                    <span className="text-xs text-muted-foreground">Running improved backtest...</span>
+                  </div>
+                )}
+                {comparison.improvedStatus === "failed" && (
+                  <p className="text-xs text-destructive">{comparison.improvedError}</p>
+                )}
+                {comparison.improvedResult && (() => {
+                  const metrics = buildMetricComparisons(
+                    comparison.originalResult.metrics,
+                    comparison.improvedResult.metrics,
+                    comparison.originalResult.trades,
+                    comparison.improvedResult.trades,
+                  );
+                  const verdict = generateComparisonVerdict(metrics);
+                  return (
+                    <>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-[11px]">
+                          <thead>
+                            <tr className="border-b border-white/[0.06] text-muted-foreground/60">
+                              <th className="text-left pb-2 pr-4 font-medium">Metric</th>
+                              <th className="text-right pb-2 pr-4 font-medium">Original</th>
+                              <th className="text-right pb-2 pr-4 font-medium">Improved</th>
+                              <th className="text-right pb-2 font-medium">Delta</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {metrics.map((m, i) => {
+                              const isBetter = m.betterWhen === "higher" ? m.delta > 0.001 : m.delta < -0.001;
+                              const isWorse = m.betterWhen === "higher" ? m.delta < -0.001 : m.delta > 0.001;
+                              return (
+                                <tr key={i} className="border-b border-white/[0.03]">
+                                  <td className="py-1.5 pr-4 text-muted-foreground">{m.label}</td>
+                                  <td className="py-1.5 pr-4 text-right font-mono text-foreground/70">{m.original}</td>
+                                  <td className="py-1.5 pr-4 text-right font-mono text-foreground">{m.improved}</td>
+                                  <td className={`py-1.5 text-right font-mono font-semibold ${isBetter ? "text-emerald-400" : isWorse ? "text-red-400" : "text-muted-foreground/50"}`}>
+                                    {m.delta > 0 ? "+" : ""}{m.delta.toFixed(2)}
+                                    {isBetter && " ↑"}
+                                    {isWorse && " ↓"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Verdict */}
+                      <div className="rounded-lg bg-white/[0.02] border border-white/[0.06] px-4 py-2.5">
+                        <p className="text-xs text-foreground/80">{verdict}</p>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex gap-3">
+                        <Button size="sm" onClick={() => { fillFormFromDSL(comparison.improvedDSL); setComparison(null); }}>
+                          Use improved strategy
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => acceptAsNewVersion(comparison.improvedDSL, comparison.changes)}>
+                          Accept as new version
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setComparison(null)}>
+                          Dismiss
+                        </Button>
+                      </div>
+                    </>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Save Strategy + Equity Curve */}
           <div className="flex items-center gap-3">
@@ -1005,6 +1616,26 @@ export default function BacktestingPage() {
             </CardContent>
           </Card>
 
+          {/* Trade Replay Chart */}
+          {candles.length > 0 && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-sm">Trade Replay</CardTitle>
+                {selectedTradeIdx !== null && (
+                  <button
+                    onClick={() => setSelectedTradeIdx(null)}
+                    className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                  >
+                    Show all trades
+                  </button>
+                )}
+              </CardHeader>
+              <CardContent>
+                <div ref={priceChartRef} />
+              </CardContent>
+            </Card>
+          )}
+
           {/* Trades Table */}
           <Card>
             <CardHeader>
@@ -1047,6 +1678,96 @@ export default function BacktestingPage() {
               </table>
             </CardContent>
           </Card>
+
+          {/* Strategy History */}
+          {versions.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-sm">Strategy History</CardTitle>
+                <button
+                  onClick={() => setShowHistory(!showHistory)}
+                  className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                >
+                  {showHistory ? "Hide" : `Show (${versions.length} versions)`}
+                </button>
+              </CardHeader>
+              {showHistory && (
+                <CardContent className="space-y-2">
+                  {/* Timeline */}
+                  <div className="flex items-center gap-1 text-[10px] text-muted-foreground/50 mb-2">
+                    {versions.map((v, i) => (
+                      <span key={v.id} className="flex items-center gap-1">
+                        <span className={`font-bold ${v.version_number === currentVersion ? "text-[#0EA5E9]" : "text-muted-foreground/60"}`}>
+                          v{v.version_number}
+                        </span>
+                        {i < versions.length - 1 && <span className="text-white/[0.1]">&#x2192;</span>}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Version cards */}
+                  {versions.map((v) => (
+                    <div
+                      key={v.id}
+                      className={`rounded-lg border p-3 transition-all duration-200 ${
+                        v.version_number === currentVersion
+                          ? "border-[#0EA5E9]/30 bg-[#0EA5E9]/[0.03]"
+                          : "border-white/[0.04] bg-white/[0.02] hover:border-white/[0.08]"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-foreground">{v.name}</span>
+                            {v.version_number === currentVersion && (
+                              <Badge variant="default">Current</Badge>
+                            )}
+                            {v.source_type === "original" && (
+                              <Badge variant="secondary">Original</Badge>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground/50 mt-0.5">
+                            {new Date(v.created_at).toLocaleString()}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground mt-1">{summarizeDSL(v.dsl)}</p>
+                          {v.change_summary && Array.isArray(v.change_summary) && v.change_summary.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-1.5">
+                              {(v.change_summary as StrategyChange[]).map((c, ci) => (
+                                <span key={ci} className="inline-flex items-center gap-1 rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                                  {c.field}: <span className="text-red-400/60 line-through">{c.from}</span> &#x2192; <span className="text-emerald-400/80">{c.to}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-1.5 shrink-0 ml-3">
+                          <button
+                            onClick={() => {
+                              fillFormFromDSL(v.dsl);
+                              setCurrentVersion(v.version_number);
+                            }}
+                            className="rounded px-2 py-0.5 text-[10px] font-medium bg-white/[0.06] text-muted-foreground hover:text-foreground hover:bg-white/[0.1]"
+                          >
+                            Load
+                          </button>
+                          <button
+                            onClick={() => {
+                              fillFormFromDSL(v.dsl);
+                              setCurrentVersion(v.version_number);
+                              setTimeout(() => handleSubmit(), 200);
+                            }}
+                            className="rounded px-2 py-0.5 text-[10px] font-medium bg-[#0EA5E9]/10 text-[#0EA5E9] hover:bg-[#0EA5E9]/20"
+                          >
+                            Backtest
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              )}
+            </Card>
+          )}
         </>
       )}
     </div>
@@ -1079,12 +1800,12 @@ function MetricCard({ label, value, positive }: { label: string; value: string |
 
 function MiniStat({ label, value, sub, positive }: { label: string; value: string; sub?: string; positive?: boolean }) {
   return (
-    <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2">
-      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</p>
-      <p className={`text-sm font-bold mt-0.5 ${positive === true ? "text-emerald-400" : positive === false ? "text-red-400" : "text-foreground"}`}>
+    <div className="group glass rounded-xl p-4 border border-white/[0.04] transition-all duration-200 hover:border-white/[0.1] hover:shadow-[0_0_16px_rgba(14,165,233,0.05)]">
+      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider font-medium">{label}</p>
+      <p className={`text-base font-bold mt-1.5 ${positive === true ? "text-emerald-400" : positive === false ? "text-red-400" : "text-foreground"}`}>
         {value}
       </p>
-      {sub && <p className="text-[10px] text-muted-foreground/60 mt-0.5">{sub}</p>}
+      {sub && <p className="text-[10px] text-muted-foreground/40 mt-1">{sub}</p>}
     </div>
   );
 }
@@ -1096,6 +1817,237 @@ function ConfirmField({ label, value }: { label: string; value?: string }) {
       <p className="text-sm font-medium">{value || "-"}</p>
     </div>
   );
+}
+
+interface ComparisonState {
+  originalDSL: ParsedDSL;
+  improvedDSL: ParsedDSL;
+  changes: StrategyChange[];
+  originalResult: BacktestResults;
+  improvedResult: BacktestResults | null;
+  improvedStatus: "idle" | "running" | "completed" | "failed";
+  improvedError: string;
+}
+
+interface MetricComparison {
+  label: string;
+  original: string;
+  improved: string;
+  delta: number;
+  betterWhen: "higher" | "lower";
+}
+
+interface StrategyChange {
+  field: string;
+  from: string;
+  to: string;
+  reason: string;
+}
+
+interface ImprovedStrategy {
+  dsl: ParsedDSL;
+  changes: StrategyChange[];
+}
+
+function generateImprovedStrategy(
+  currentDSL: ParsedDSL,
+  metrics: Metrics,
+  trades: Trade[],
+): ImprovedStrategy {
+  // Deep clone DSL
+  const dsl: ParsedDSL = JSON.parse(JSON.stringify(currentDSL));
+  const changes: StrategyChange[] = [];
+
+  const conditions = dsl.entry?.conditions ?? [];
+  const rsiCond = conditions.find((c) => c.type === "rsi_above" || c.type === "rsi_below");
+  const wins = trades.filter((t) => t.result === "win");
+  const losses = trades.filter((t) => t.result === "loss");
+  const avgLoss = losses.length > 0 ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length : 0;
+  const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0;
+
+  // Track how many applied (max 2)
+  let applied = 0;
+
+  // A) Low win rate → tighten RSI filter
+  if (applied < 2 && metrics.win_rate < 35 && rsiCond && typeof rsiCond.value === "number") {
+    const oldVal = rsiCond.value as number;
+    const newVal = rsiCond.type === "rsi_above" ? oldVal + 5 : oldVal - 5;
+    changes.push({
+      field: `RSI threshold`,
+      from: `${oldVal}`,
+      to: `${newVal}`,
+      reason: `Win rate is ${metrics.win_rate}% — entry filter was made stricter.`,
+    });
+    rsiCond.value = newVal;
+    applied++;
+  }
+
+  // B) Too many trades → add/restrict session filter
+  if (applied < 2 && metrics.total_trades > 300) {
+    const sessionFilter = dsl.filters?.find((f) => f.type === "session");
+    if (!sessionFilter) {
+      dsl.filters = [...(dsl.filters ?? []), { type: "session", sessions: ["london"] }];
+      changes.push({
+        field: "Session filter",
+        from: "none",
+        to: "London only",
+        reason: `${metrics.total_trades} trades is too many — frequency was reduced with a session filter.`,
+      });
+    } else if (sessionFilter.sessions && sessionFilter.sessions.length > 1) {
+      const oldSessions = sessionFilter.sessions.join(", ");
+      sessionFilter.sessions = ["london"];
+      changes.push({
+        field: "Session filter",
+        from: oldSessions,
+        to: "London only",
+        reason: `${metrics.total_trades} trades is too many — restricted to London session.`,
+      });
+    }
+    applied++;
+  }
+
+  // C) Weak profit factor → increase RR
+  if (applied < 2 && metrics.profit_factor < 1.05 && dsl.exit?.take_profit) {
+    const oldRR = dsl.exit.take_profit.ratio;
+    if (oldRR < 2.5) {
+      const newRR = Math.round((oldRR + 0.5) * 10) / 10;
+      changes.push({
+        field: "RR ratio",
+        from: `${oldRR}`,
+        to: `${newRR}`,
+        reason: `Profit factor is ${metrics.profit_factor.toFixed(2)} — reward/risk was increased.`,
+      });
+      dsl.exit.take_profit.ratio = newRR;
+      applied++;
+    }
+  }
+
+  // D) Long loss streaks → tighten SL
+  let longestLoss = 0, curLoss = 0;
+  for (const t of trades) {
+    if (t.result === "loss") { curLoss++; longestLoss = Math.max(longestLoss, curLoss); }
+    else { curLoss = 0; }
+  }
+  if (applied < 2 && longestLoss >= 8 && dsl.exit?.stop_loss) {
+    const oldSL = dsl.exit.stop_loss.value;
+    const newSL = Math.round(oldSL * 0.85 * 100) / 100;
+    if (newSL >= 0.1) {
+      changes.push({
+        field: "Stop loss %",
+        from: `${oldSL}%`,
+        to: `${newSL}%`,
+        reason: `Longest loss streak is ${longestLoss} — stop loss was tightened to reduce drawdown.`,
+      });
+      dsl.exit.stop_loss.value = newSL;
+      applied++;
+    }
+  }
+
+  // E) Avg loss too large vs avg win → reduce SL
+  if (applied < 2 && avgLoss !== 0 && avgWin / Math.abs(avgLoss) < 1.2 && dsl.exit?.stop_loss) {
+    const oldSL = dsl.exit.stop_loss.value;
+    const newSL = Math.round(oldSL * 0.8 * 100) / 100;
+    if (newSL >= 0.1) {
+      changes.push({
+        field: "Stop loss %",
+        from: `${oldSL}%`,
+        to: `${newSL}%`,
+        reason: "Average loss is too close to average win — stop loss was tightened.",
+      });
+      dsl.exit.stop_loss.value = newSL;
+      applied++;
+    }
+  }
+
+  // Fallback if nothing changed
+  if (changes.length === 0) {
+    // Try bumping RR slightly
+    if (dsl.exit?.take_profit) {
+      const oldRR = dsl.exit.take_profit.ratio;
+      const newRR = Math.round((oldRR + 0.5) * 10) / 10;
+      changes.push({
+        field: "RR ratio",
+        from: `${oldRR}`,
+        to: `${newRR}`,
+        reason: "No critical flaw found — RR was increased slightly for better reward profile.",
+      });
+      dsl.exit.take_profit.ratio = newRR;
+    }
+  }
+
+  return { dsl, changes };
+}
+
+function buildMetricComparisons(orig: Metrics, imp: Metrics, origTrades: Trade[], impTrades: Trade[]): MetricComparison[] {
+  const origWins = origTrades.filter((t) => t.result === "win");
+  const origLosses = origTrades.filter((t) => t.result === "loss");
+  const impWins = impTrades.filter((t) => t.result === "win");
+  const impLosses = impTrades.filter((t) => t.result === "loss");
+
+  const origAvgWin = origWins.length > 0 ? origWins.reduce((s, t) => s + t.pnl, 0) / origWins.length : 0;
+  const origAvgLoss = origLosses.length > 0 ? origLosses.reduce((s, t) => s + t.pnl, 0) / origLosses.length : 0;
+  const impAvgWin = impWins.length > 0 ? impWins.reduce((s, t) => s + t.pnl, 0) / impWins.length : 0;
+  const impAvgLoss = impLosses.length > 0 ? impLosses.reduce((s, t) => s + t.pnl, 0) / impLosses.length : 0;
+
+  const origExp = (orig.win_rate / 100) * origAvgWin - (1 - orig.win_rate / 100) * Math.abs(origAvgLoss);
+  const impExp = (imp.win_rate / 100) * impAvgWin - (1 - imp.win_rate / 100) * Math.abs(impAvgLoss);
+
+  function streak(trades: Trade[], type: "win" | "loss") {
+    let max = 0, cur = 0;
+    for (const t of trades) {
+      if (t.result === type) { cur++; max = Math.max(max, cur); } else cur = 0;
+    }
+    return max;
+  }
+
+  return [
+    { label: "Total Trades", original: `${orig.total_trades}`, improved: `${imp.total_trades}`, delta: imp.total_trades - orig.total_trades, betterWhen: "lower" },
+    { label: "Win Rate", original: `${orig.win_rate}%`, improved: `${imp.win_rate}%`, delta: imp.win_rate - orig.win_rate, betterWhen: "higher" },
+    { label: "Profit Factor", original: orig.profit_factor.toFixed(2), improved: imp.profit_factor.toFixed(2), delta: imp.profit_factor - orig.profit_factor, betterWhen: "higher" },
+    { label: "Max Drawdown", original: `${(orig.max_drawdown * 100).toFixed(1)}%`, improved: `${(imp.max_drawdown * 100).toFixed(1)}%`, delta: imp.max_drawdown - orig.max_drawdown, betterWhen: "lower" },
+    { label: "Net Profit", original: `$${orig.net_profit.toFixed(2)}`, improved: `$${imp.net_profit.toFixed(2)}`, delta: imp.net_profit - orig.net_profit, betterWhen: "higher" },
+    { label: "Expectancy", original: `$${origExp.toFixed(2)}`, improved: `$${impExp.toFixed(2)}`, delta: impExp - origExp, betterWhen: "higher" },
+    { label: "Avg Win", original: `$${origAvgWin.toFixed(2)}`, improved: `$${impAvgWin.toFixed(2)}`, delta: impAvgWin - origAvgWin, betterWhen: "higher" },
+    { label: "Avg Loss", original: `$${origAvgLoss.toFixed(2)}`, improved: `$${impAvgLoss.toFixed(2)}`, delta: impAvgLoss - origAvgLoss, betterWhen: "higher" },
+    { label: "Loss Streak", original: `${streak(origTrades, "loss")}`, improved: `${streak(impTrades, "loss")}`, delta: streak(impTrades, "loss") - streak(origTrades, "loss"), betterWhen: "lower" },
+  ];
+}
+
+function generateComparisonVerdict(metrics: MetricComparison[]): string {
+  const improved = metrics.filter((m) => {
+    if (m.betterWhen === "higher") return m.delta > 0.001;
+    return m.delta < -0.001;
+  });
+  const worsened = metrics.filter((m) => {
+    if (m.betterWhen === "higher") return m.delta < -0.001;
+    return m.delta > 0.001;
+  });
+
+  if (improved.length === 0 && worsened.length === 0) return "Changes did not materially improve the strategy.";
+  if (improved.length > worsened.length) {
+    const names = improved.slice(0, 2).map((m) => m.label.toLowerCase()).join(" and ");
+    return `Improved strategy shows better ${names}.`;
+  }
+  if (worsened.length > improved.length) {
+    return "Changes made the strategy worse overall. Consider reverting.";
+  }
+  return "Mixed results — some metrics improved, others deteriorated. Review carefully.";
+}
+
+function summarizeDSL(dsl: ParsedDSL): string {
+  const parts: string[] = [];
+  if (dsl.entry?.conditions) {
+    for (const c of dsl.entry.conditions) {
+      if (c.type === "ema_cross") parts.push(`EMA ${c.fast}/${c.slow}`);
+      if (c.type === "rsi_above") parts.push(`RSI>${c.value}`);
+      if (c.type === "rsi_below") parts.push(`RSI<${c.value}`);
+    }
+  }
+  if (dsl.exit?.stop_loss) parts.push(`SL ${dsl.exit.stop_loss.value}%`);
+  if (dsl.exit?.take_profit) parts.push(`RR ${dsl.exit.take_profit.ratio}`);
+  const sessions = dsl.filters?.filter((f) => f.type === "session").flatMap((f) => f.sessions ?? []);
+  if (sessions && sessions.length > 0) parts.push(sessions.join("+"));
+  return parts.join(", ");
 }
 
 function computeInsights(trades: Trade[], metrics: Metrics) {
@@ -1130,52 +2082,161 @@ function computeInsights(trades: Trade[], metrics: Metrics) {
     if (pnl < worstDay.pnl) worstDay = { day, pnl };
   }
 
-  // Actionable coaching insights (max 4)
+  // Expectancy
+  const wr = metrics.win_rate / 100;
+  const expectancy = (wr * avgWin) - ((1 - wr) * Math.abs(avgLoss));
+  const expectancyPer100 = expectancy * 100;
+
+  // Verdict
+  let verdict: { label: string; icon: string; color: string; bg: string; border: string; subtext: string };
+  if (metrics.profit_factor < 1.05) {
+    verdict = {
+      label: "NOT TRADEABLE",
+      icon: "\uD83D\uDD34",
+      color: "text-red-400",
+      bg: "bg-red-500/10",
+      border: "border-red-500/20",
+      subtext: "This strategy is not suitable for live trading in its current form.",
+    };
+  } else if (metrics.profit_factor < 1.3) {
+    verdict = {
+      label: "NEEDS IMPROVEMENT",
+      icon: "\uD83D\uDFE1",
+      color: "text-amber-400",
+      bg: "bg-amber-500/10",
+      border: "border-amber-500/20",
+      subtext: "This strategy may work, but it needs tighter execution and filtering.",
+    };
+  } else {
+    verdict = {
+      label: "TRADEABLE EDGE",
+      icon: "\uD83D\uDFE2",
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/10",
+      border: "border-emerald-500/20",
+      subtext: "This strategy shows a usable edge if execution remains consistent.",
+    };
+  }
+
+  // Coaching insights (max 4, concise)
   const avgRR = wins.length > 0 ? wins.reduce((s, t) => s + t.rr, 0) / wins.length : 0;
   const bullets: string[] = [];
 
-  // Edge quality
   if (metrics.profit_factor < 1.05) {
-    bullets.push(`Profit factor is only ${metrics.profit_factor.toFixed(2)}, meaning the strategy barely breaks even after costs. You need either higher RR or better entry filtering.`);
+    bullets.push(`Profit factor is **${metrics.profit_factor.toFixed(2)}** — edge is too thin. Small execution errors will kill profitability.`);
   } else if (metrics.profit_factor >= 2.0) {
-    bullets.push(`Profit factor of ${metrics.profit_factor.toFixed(2)} is strong — winners carry the strategy. Focus on preserving this edge by not widening stops.`);
+    bullets.push(`Profit factor **${metrics.profit_factor.toFixed(2)}** is exceptional. Protect it: don't widen stops, don't overtrade.`);
   }
 
-  // Win rate vs RR
   if (metrics.win_rate < 35) {
-    if (avgRR >= 2.5) {
-      bullets.push(`Win rate is ${metrics.win_rate}% with avg RR ${avgRR.toFixed(1)}. This is a valid low-frequency, high-reward model — but requires iron discipline through loss streaks.`);
-    } else {
-      bullets.push(`Win rate is ${metrics.win_rate}% with avg RR ${avgRR.toFixed(1)}. This combination is fragile — either improve entry accuracy or increase your reward target.`);
-    }
+    bullets.push(`Win rate **${metrics.win_rate}%** at RR **${avgRR.toFixed(1)}** — viable only with disciplined execution.`);
   }
 
-  // Drawdown
-  if (metrics.max_drawdown > 0.1) {
-    bullets.push(`Max drawdown hit ${(metrics.max_drawdown * 100).toFixed(1)}%. At 1% risk per trade, this would feel like a ${Math.round(metrics.max_drawdown * 100)}% account loss. Consider tighter position sizing or adding a daily loss limit.`);
-  } else if (metrics.max_drawdown > 0.05) {
-    bullets.push(`Max drawdown of ${(metrics.max_drawdown * 100).toFixed(1)}% is moderate. Manageable with proper sizing, but watch for clustering losses.`);
+  if (avgLoss !== 0 && avgWin > Math.abs(avgLoss) * 1.8) {
+    bullets.push(`Winners are **${(avgWin / Math.abs(avgLoss)).toFixed(1)}x** larger than losers — reward is fine, setup filtering is the weakness.`);
   }
 
-  // Loss streaks
   if (longestLoss >= 8) {
-    bullets.push(`Longest loss streak is ${longestLoss} trades. Most traders abandon strategies after 5-6 losses. If you can't stomach this, reduce risk per trade or add a cooldown rule.`);
+    bullets.push(`Longest loss streak: **${longestLoss}** — psychologically brutal. Add a cooldown rule or reduce size.`);
   } else if (longestLoss >= 5) {
-    bullets.push(`Longest loss streak is ${longestLoss} trades — mentally demanding. Consider halving size after 3 consecutive losses as a circuit breaker.`);
+    bullets.push(`Longest loss streak: **${longestLoss}** — consider halving size after 3 consecutive losses.`);
+  }
+
+  if (metrics.max_drawdown > 0.1) {
+    bullets.push(`Drawdown **${(metrics.max_drawdown * 100).toFixed(1)}%** — at 1% risk that's a ${Math.round(metrics.max_drawdown * 100)}% account hit. Tighten filters first.`);
+  } else if (metrics.max_drawdown > 0.05) {
+    bullets.push(`Drawdown **${(metrics.max_drawdown * 100).toFixed(1)}%** — manageable, but watch for loss clustering.`);
   }
 
   if (bullets.length === 0) {
     if (metrics.win_rate >= 50 && metrics.profit_factor >= 1.3) {
-      bullets.push(`Win rate ${metrics.win_rate}% with profit factor ${metrics.profit_factor.toFixed(2)} — this is a tradeable edge. Stay consistent with execution.`);
+      bullets.push(`Win rate **${metrics.win_rate}%** with PF **${metrics.profit_factor.toFixed(2)}** — real edge. Stay consistent.`);
     } else {
-      bullets.push("Metrics are within normal range. Run a longer backtest period to validate consistency.");
+      bullets.push("Metrics are normal. Run a longer period to validate edge consistency.");
     }
   }
 
-  // Cap at 4
   bullets.length = Math.min(bullets.length, 4);
 
-  return { avgWin, avgLoss, bestTrade, worstTrade, longestWin, longestLoss, bestDay, worstDay, bullets };
+  // What to improve (max 3, deterministic)
+  const improvements: string[] = [];
+  if (metrics.win_rate < 45) improvements.push("Test stricter entry filters to improve win rate.");
+  if (longestLoss >= 5) improvements.push("Lower risk per trade if long loss streaks are hard to tolerate.");
+  if (metrics.profit_factor < 1.3 && avgRR < 2) improvements.push("Increase reward target or tighten stop loss to improve RR.");
+  if (metrics.max_drawdown > 0.05 && improvements.length < 3) improvements.push("Reduce bad setups instead of increasing trade frequency.");
+  if (improvements.length === 0) improvements.push("Validate consistency across different market conditions.");
+  improvements.length = Math.min(improvements.length, 3);
+
+  // AI Coach: direct mentor voice
+  const coachLines: string[] = [];
+  if (metrics.profit_factor < 1.1) coachLines.push("You don't have a real edge here. Every trade you take is basically a coin flip — and costs are working against you.");
+  if (metrics.win_rate < 40 && avgRR >= 2) coachLines.push("You're relying on RR to compensate for poor accuracy. That can work — but one sloppy entry will wipe out multiple winners.");
+  if (metrics.win_rate >= 50 && metrics.profit_factor >= 1.3) coachLines.push("You have a real edge. Don't overthink it, don't change what's working. Just execute.");
+  if (longestLoss > 10) coachLines.push(`You'll hit ${longestLoss} losses in a row. Most traders quit after 5. If you can't handle that, this isn't the strategy for you.`);
+  if (coachLines.length === 0) coachLines.push("Your numbers are mixed. Don't risk real capital until you've tested this across different conditions.");
+  coachLines.length = Math.min(coachLines.length, 3);
+
+  // Reality check (1 strong sentence)
+  let realityCheck: string;
+  if (metrics.profit_factor < 1.05) realityCheck = "Most traders would lose money trading this live.";
+  else if (metrics.profit_factor < 1.2) realityCheck = "Execution mistakes will destroy this strategy.";
+  else if (longestLoss >= 8) realityCheck = "This will feel good in backtest, but the losing streaks will test you in real conditions.";
+  else if (metrics.max_drawdown > 0.1) realityCheck = "The drawdown alone will make you question everything. Be honest about your risk tolerance.";
+  else if (metrics.win_rate < 35) realityCheck = "You'll lose most of your trades. The math works — but your psychology might not.";
+  else realityCheck = "The edge is there. The question is whether you'll execute it consistently when it matters.";
+
+  // Main problem (priority-based, pick one)
+  let mainProblem: { label: string; detail: string };
+  if (metrics.profit_factor < 1.1) {
+    mainProblem = { label: "Weak edge", detail: "You're barely breaking even. After real-world costs and slippage, you're likely losing money." };
+  } else if (metrics.win_rate < 35) {
+    mainProblem = { label: "Low accuracy", detail: "You're wrong on most trades. Your RR needs to compensate — and right now it may not be enough." };
+  } else if (avgLoss !== 0 && avgWin / Math.abs(avgLoss) < 1.2) {
+    mainProblem = { label: "Poor risk/reward", detail: "Your wins and losses are nearly the same size. There's no structural advantage — you're grinding for nothing." };
+  } else if (longestLoss >= 8) {
+    mainProblem = { label: "Streak risk", detail: "The losing streaks are too long. You'll second-guess every entry after 5 losses, and the strategy needs you not to." };
+  } else if (metrics.max_drawdown > 0.08) {
+    mainProblem = { label: "High drawdown", detail: "The drawdown is deeper than most traders can tolerate. You'll want to stop trading before the recovery." };
+  } else {
+    mainProblem = { label: "No critical flaw", detail: "Nothing is broken — but nothing is exceptional either. Focus on consistency." };
+  }
+
+  // What to fix first (imperative, max 3)
+  const fixes: string[] = [];
+  if (metrics.win_rate < 45) fixes.push("Stop taking low-quality setups. This is your biggest leak.");
+  if (longestLoss >= 5) fixes.push("Cut your position size. You can't trade through a streak you can't survive.");
+  if (metrics.profit_factor < 1.3) fixes.push("Your entries aren't good enough. More trades won't fix that — better trades will.");
+  if (avgRR < 1.5 && fixes.length < 3) fixes.push("Move your TP further or your SL tighter. Your RR is leaving money on the table.");
+  if (fixes.length === 0) fixes.push("Keep doing what you're doing. Don't fix what isn't broken.");
+  fixes.length = Math.min(fixes.length, 3);
+
+  // Quality score (0-100)
+  let qualityScore = 50;
+  if (metrics.profit_factor > 1.2) qualityScore += 10;
+  if (metrics.profit_factor > 1.5) qualityScore += 5;
+  if (metrics.win_rate > 40) qualityScore += 10;
+  if (metrics.win_rate > 55) qualityScore += 5;
+  if (avgRR >= 2) qualityScore += 10;
+  if (longestLoss > 10) qualityScore -= 10;
+  if (longestLoss > 6) qualityScore -= 5;
+  if (metrics.profit_factor < 1.05) qualityScore -= 10;
+  if (metrics.max_drawdown > 0.1) qualityScore -= 5;
+  if (expectancy > 0) qualityScore += 5;
+  qualityScore = Math.max(0, Math.min(100, qualityScore));
+  const qualityLabel = qualityScore < 40 ? "Not tradeable" : qualityScore < 60 ? "Weak edge" : qualityScore < 75 ? "Potential" : "Strong";
+
+  // What to do next (1-2 line immediate instruction)
+  let nextStep: string;
+  if (metrics.profit_factor < 1.05) nextStep = "Scrap this version — change your EMA periods or add an RSI filter and rerun.";
+  else if (metrics.win_rate < 35 && avgRR < 2) nextStep = "Set take-profit to at least 3R and retest before touching live capital.";
+  else if (longestLoss >= 8) nextStep = "Drop position size to 0.5% and add a 3-loss daily cutoff rule.";
+  else if (metrics.profit_factor < 1.3) nextStep = "Remove your weakest session filter and rerun with only London overlap.";
+  else nextStep = "Paper trade this for 2 weeks — track every entry against the rules.";
+
+  const tradeabilityIcon = qualityScore < 50 ? "\u274C" : qualityScore < 70 ? "\u26A0\uFE0F" : "\u2705";
+  const tradeabilityText = qualityScore < 50 ? "Not tradeable" : qualityScore < 70 ? "Needs work" : "Tradeable";
+
+  return { avgWin, avgLoss, bestTrade, worstTrade, longestWin, longestLoss, bestDay, worstDay, bullets, improvements, expectancy, expectancyPer100, verdict, coachLines, realityCheck, mainProblem, fixes, qualityScore, qualityLabel, nextStep, tradeabilityIcon, tradeabilityText };
 }
 
 function formatCondition(c: Record<string, unknown>): string {

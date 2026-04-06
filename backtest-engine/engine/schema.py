@@ -126,7 +126,16 @@ class EquityPoint(BaseModel):
     equity: float
 
 
+class CandlePoint(BaseModel):
+    ts: str
+    open: float
+    high: float
+    low: float
+    close: float
+
+
 class BacktestResult(BaseModel):
     metrics: Metrics
     equity_curve: list[EquityPoint]
     trades: list[TradeRecord]
+    candles: list[CandlePoint] = []

@@ -7,7 +7,7 @@ import pandas as pd
 from engine.candles import candle_in_session, compute_session_ranges, generate_mock_candles
 from engine.indicators import ema, rsi
 from engine.metrics import compute_metrics
-from engine.schema import BacktestResult, Metrics, StrategyDSL, TradeRecord
+from engine.schema import BacktestResult, CandlePoint, Metrics, StrategyDSL, TradeRecord
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,21 @@ def run_backtest(strategy: StrategyDSL) -> BacktestResult:
     metrics = compute_metrics(trades, equity_curve)
     trade_records = [TradeRecord(**t) for t in trades]
 
-    return BacktestResult(metrics=metrics, equity_curve=equity_curve, trades=trade_records)
+    # Downsample candles (max 2000 for payload size)
+    max_candles = 2000
+    step = max(1, len(df) // max_candles)
+    candle_points = [
+        CandlePoint(
+            ts=df.iloc[i]["ts"].isoformat(),
+            open=float(df.iloc[i]["open"]),
+            high=float(df.iloc[i]["high"]),
+            low=float(df.iloc[i]["low"]),
+            close=float(df.iloc[i]["close"]),
+        )
+        for i in range(0, len(df), step)
+    ]
+
+    return BacktestResult(metrics=metrics, equity_curve=equity_curve, trades=trade_records, candles=candle_points)
 
 
 def _attach_indicators(df: pd.DataFrame, strategy: StrategyDSL) -> pd.DataFrame:
