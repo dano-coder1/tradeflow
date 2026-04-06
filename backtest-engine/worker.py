@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Debug (môžeš neskôr zmazať)
+print("SUPABASE_URL =", os.environ.get("SUPABASE_URL"))
+
 import logging
 import time
 import traceback
-
-from dotenv import load_dotenv
-
-load_dotenv()
 
 from engine.persistence import (
     get_next_pending_job,
@@ -44,11 +49,12 @@ def process_job(client, job: dict) -> None:
 
     dsl_data = strategy_row["dsl"]
 
-    # Allow job-level config overrides (e.g. date_range)
+    # Apply job-level overrides
     if job.get("config"):
         dsl_data = {**dsl_data, **job["config"]}
 
     strategy = StrategyDSL(**dsl_data)
+
     result = run_backtest(strategy)
 
     save_backtest_result(
@@ -67,26 +73,39 @@ def main() -> None:
     client = get_supabase_client()
 
     while True:
+        job = None
         try:
             job = get_next_pending_job(client)
+
             if job is None:
                 time.sleep(POLL_INTERVAL)
                 continue
 
-            logger.info("Processing job %s (strategy %s)", job["id"], job["strategy_id"])
+            logger.info(
+                "Processing job %s (strategy %s)",
+                job["id"],
+                job["strategy_id"],
+            )
+
             process_job(client, job)
 
         except KeyboardInterrupt:
             logger.info("Worker shutting down")
             break
+
         except Exception:
             logger.error("Unhandled error:\n%s", traceback.format_exc())
-            # If we have a job reference, mark it failed
+
             if job is not None:
                 try:
-                    mark_job_failed(client, job["id"], traceback.format_exc()[-500:])
+                    mark_job_failed(
+                        client,
+                        job["id"],
+                        traceback.format_exc()[-500:],
+                    )
                 except Exception:
                     logger.error("Failed to mark job as failed")
+
             time.sleep(POLL_INTERVAL)
 
 
