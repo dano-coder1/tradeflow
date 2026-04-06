@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useRef, type DragEvent } from "react";
+import { useRouter } from "next/navigation";
 import {
   Search, Loader2, ChevronDown, ChevronRight, Plus, Check,
   Upload, Link2, FileText, Sparkles, X, Pencil, Trash2, Eye,
-  BookOpen, Globe, Wrench,
+  BookOpen, Globe, Wrench, FlaskConical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -38,6 +39,7 @@ type Tab = "curated" | "search" | "custom" | "saved" | "playbooks";
 // ── Main component ───────────────────────────────────────────────────────────
 
 export function StrategyLibrary() {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("curated");
   const [strategies, setStrats] = useState<SavedStrategy[]>(() => loadStrategies());
   const [activeId, setActiveId] = useState<string | null>(() => loadActiveStrategyId());
@@ -265,9 +267,26 @@ export function StrategyLibrary() {
                     <ul className="space-y-1">
                       {c.rules.map((r, i) => <li key={i} className="text-[11px] text-muted-foreground flex gap-1.5"><span className="text-foreground shrink-0">{i + 1}.</span>{r}</li>)}
                     </ul>
-                    <button onClick={() => useCurated(c)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0EA5E9]/15 px-3 py-1.5 text-xs font-semibold text-[#0EA5E9] hover:bg-[#0EA5E9]/25">
-                      <Plus className="h-3.5 w-3.5" /> Use this strategy
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => useCurated(c)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0EA5E9]/15 px-3 py-1.5 text-xs font-semibold text-[#0EA5E9] hover:bg-[#0EA5E9]/25">
+                        <Plus className="h-3.5 w-3.5" /> Use this strategy
+                      </button>
+                      {c.backtest_dsl ? (
+                        <button
+                          onClick={() => {
+                            sessionStorage.setItem("tf:backtest-prefill", JSON.stringify(c.backtest_dsl));
+                            router.push("/backtesting");
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-[#8B5CF6]/15 px-3 py-1.5 text-xs font-semibold text-[#8B5CF6] hover:bg-[#8B5CF6]/25"
+                        >
+                          <FlaskConical className="h-3.5 w-3.5" /> Backtest
+                        </button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.04] px-3 py-1.5 text-xs text-muted-foreground/50 cursor-not-allowed">
+                          <FlaskConical className="h-3.5 w-3.5" /> Backtest coming soon
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

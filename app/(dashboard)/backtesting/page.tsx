@@ -65,11 +65,111 @@ interface ParseResult {
   needs_confirmation: boolean;
 }
 
+interface SavedStrategy {
+  id: string;
+  name: string;
+  dsl: ParsedDSL;
+  created_at: string;
+}
+
+type Tab = "templates" | "saved" | "describe";
+
+// ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
+
+const TEMPLATES: { name: string; summary: string; dsl: ParsedDSL }[] = [
+  {
+    name: "EMA Crossover",
+    summary: "EMA 20/50, RSI > 50, SL 0.5%, RR 2, London",
+    dsl: {
+      market: "XAUUSD",
+      timeframe: "15m",
+      entry: {
+        direction: "long",
+        conditions: [
+          { type: "ema_cross", fast: 20, slow: 50 },
+          { type: "rsi_above", period: 14, value: 50 },
+        ],
+      },
+      exit: {
+        stop_loss: { type: "fixed_pct", value: 0.5 },
+        take_profit: { type: "rr", ratio: 2.0 },
+      },
+      filters: [{ type: "session", sessions: ["london"] }],
+      commission_pct: 0.07,
+    },
+  },
+  {
+    name: "RSI Trend Filter",
+    summary: "EMA 50/200, RSI > 55, SL 0.8%, RR 2.5, London + NY",
+    dsl: {
+      market: "XAUUSD",
+      timeframe: "15m",
+      entry: {
+        direction: "long",
+        conditions: [
+          { type: "ema_cross", fast: 50, slow: 200 },
+          { type: "rsi_above", period: 14, value: 55 },
+        ],
+      },
+      exit: {
+        stop_loss: { type: "fixed_pct", value: 0.8 },
+        take_profit: { type: "rr", ratio: 2.5 },
+      },
+      filters: [{ type: "session", sessions: ["london", "new_york"] }],
+      commission_pct: 0.07,
+    },
+  },
+  {
+    name: "Breakout Session",
+    summary: "EMA 20/50, SL 1%, RR 3, London NY overlap",
+    dsl: {
+      market: "XAUUSD",
+      timeframe: "15m",
+      entry: {
+        direction: "long",
+        conditions: [{ type: "ema_cross", fast: 20, slow: 50 }],
+      },
+      exit: {
+        stop_loss: { type: "fixed_pct", value: 1.0 },
+        take_profit: { type: "rr", ratio: 3.0 },
+      },
+      filters: [{ type: "session", sessions: ["london_ny_overlap"] }],
+      commission_pct: 0.07,
+    },
+  },
+  {
+    name: "Conservative Scalp",
+    summary: "EMA 10/20, RSI > 50, SL 0.3%, RR 1.5, London",
+    dsl: {
+      market: "XAUUSD",
+      timeframe: "15m",
+      entry: {
+        direction: "long",
+        conditions: [
+          { type: "ema_cross", fast: 10, slow: 20 },
+          { type: "rsi_above", period: 14, value: 50 },
+        ],
+      },
+      exit: {
+        stop_loss: { type: "fixed_pct", value: 0.3 },
+        take_profit: { type: "rr", ratio: 1.5 },
+      },
+      filters: [{ type: "session", sessions: ["london"] }],
+      commission_pct: 0.07,
+    },
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function BacktestingPage() {
+  // Tab state
+  const [activeTab, setActiveTab] = useState<Tab>("describe");
+
   // Form state
   const [symbol, setSymbol] = useState("XAUUSD");
   const [timeframe, setTimeframe] = useState("15m");
@@ -86,6 +186,14 @@ export default function BacktestingPage() {
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState("");
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
+
+  // Saved strategies
+  const [savedStrategies, setSavedStrategies] = useState<SavedStrategy[]>([]);
+  const [savedLoading, setSavedLoading] = useState(false);
+
+  // Save strategy
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Job state
   const [status, setStatus] = useState<JobStatus>("idle");
@@ -104,6 +212,70 @@ export default function BacktestingPage() {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
+
+  // -----------------------------------------------------------------------
+  // Fill form from DSL
+  // -----------------------------------------------------------------------
+
+  const fillFormFromDSL = useCallback((d: ParsedDSL) => {
+    if (d.market) setSymbol(d.market);
+    if (d.timeframe) setTimeframe(d.timeframe);
+    if (d.date_range?.from) setDateFrom(d.date_range.from);
+    if (d.date_range?.to) setDateTo(d.date_range.to);
+
+    if (d.entry?.conditions) {
+      for (const c of d.entry.conditions) {
+        if (c.type === "ema_cross") {
+          if (typeof c.fast === "number") setEmaFast(c.fast);
+          if (typeof c.slow === "number") setEmaSlow(c.slow);
+        }
+        if (c.type === "rsi_above" || c.type === "rsi_below") {
+          if (typeof c.value === "number") setRsiThreshold(c.value);
+        }
+      }
+    }
+
+    if (d.exit?.stop_loss?.value != null) setSlPct(d.exit.stop_loss.value);
+    if (d.exit?.take_profit?.ratio != null) setRrRatio(d.exit.take_profit.ratio);
+
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+  }, []);
+
+  // Check for prefilled DSL from strategy library
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("tf:backtest-prefill");
+      if (!raw) return;
+      sessionStorage.removeItem("tf:backtest-prefill");
+      const dsl = JSON.parse(raw) as ParsedDSL;
+      fillFormFromDSL(dsl);
+    } catch {
+      // ignore
+    }
+  }, [fillFormFromDSL]);
+
+  // -----------------------------------------------------------------------
+  // Fetch saved strategies
+  // -----------------------------------------------------------------------
+
+  const fetchSaved = useCallback(async () => {
+    setSavedLoading(true);
+    try {
+      const res = await fetch("/api/backtest/strategies");
+      if (res.ok) {
+        const data = await res.json();
+        setSavedStrategies(data);
+      }
+    } catch {
+      // silent
+    } finally {
+      setSavedLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "saved") fetchSaved();
+  }, [activeTab, fetchSaved]);
 
   // -----------------------------------------------------------------------
   // AI Parse
@@ -143,39 +315,61 @@ export default function BacktestingPage() {
   }, [promptText]);
 
   // -----------------------------------------------------------------------
-  // Confirm & Fill Form
+  // Confirm parsed DSL
   // -----------------------------------------------------------------------
 
   const handleConfirm = useCallback(() => {
     if (!parseResult?.dsl) return;
-    const d = parseResult.dsl;
-
-    if (d.market) setSymbol(d.market);
-    if (d.timeframe) setTimeframe(d.timeframe);
-    if (d.date_range?.from) setDateFrom(d.date_range.from);
-    if (d.date_range?.to) setDateTo(d.date_range.to);
-
-    if (d.entry?.conditions) {
-      for (const c of d.entry.conditions) {
-        if (c.type === "ema_cross") {
-          if (typeof c.fast === "number") setEmaFast(c.fast);
-          if (typeof c.slow === "number") setEmaSlow(c.slow);
-        }
-        if (c.type === "rsi_above" || c.type === "rsi_below") {
-          if (typeof c.value === "number") setRsiThreshold(c.value);
-        }
-      }
-    }
-
-    if (d.exit?.stop_loss?.value != null) setSlPct(d.exit.stop_loss.value);
-    if (d.exit?.take_profit?.ratio != null) setRrRatio(d.exit.take_profit.ratio);
-
+    fillFormFromDSL(parseResult.dsl);
     setParseResult(null);
-    setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-  }, [parseResult]);
+  }, [parseResult, fillFormFromDSL]);
 
   // -----------------------------------------------------------------------
-  // Submit
+  // Save strategy
+  // -----------------------------------------------------------------------
+
+  const handleSaveStrategy = useCallback(async () => {
+    setSaving(true);
+    setSaveSuccess(false);
+
+    const dsl = {
+      market: symbol,
+      timeframe,
+      entry: {
+        direction: "long",
+        conditions: [
+          { type: "ema_cross", fast: emaFast, slow: emaSlow },
+          { type: "rsi_above", period: 14, value: rsiThreshold },
+        ],
+      },
+      exit: {
+        stop_loss: { type: "fixed_pct", value: slPct },
+        take_profit: { type: "rr", ratio: rrRatio },
+      },
+      filters: [],
+      commission_pct: 0.07,
+    };
+
+    try {
+      const res = await fetch("/api/backtest/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dsl, saveOnly: true }),
+      });
+      if (res.ok) {
+        setSaveSuccess(true);
+        fetchSaved();
+        setTimeout(() => setSaveSuccess(false), 3000);
+      }
+    } catch {
+      // silent
+    } finally {
+      setSaving(false);
+    }
+  }, [symbol, timeframe, emaFast, emaSlow, rsiThreshold, slPct, rrRatio, fetchSaved]);
+
+  // -----------------------------------------------------------------------
+  // Submit backtest
   // -----------------------------------------------------------------------
 
   const handleSubmit = useCallback(async () => {
@@ -214,7 +408,6 @@ export default function BacktestingPage() {
       }
       const { job_id } = await createRes.json();
 
-      // Poll for status
       pollRef.current = setInterval(async () => {
         try {
           const statusRes = await fetch(`/api/backtest/status/${job_id}`);
@@ -301,6 +494,12 @@ export default function BacktestingPage() {
   // -----------------------------------------------------------------------
 
   const isRunning = status === "pending" || status === "running";
+  const isBusy = isRunning || parsing;
+  const tabs: { key: Tab; label: string }[] = [
+    { key: "templates", label: "Templates" },
+    { key: "saved", label: "Recent" },
+    { key: "describe", label: "Describe" },
+  ];
 
   return (
     <div className="space-y-6">
@@ -310,29 +509,106 @@ export default function BacktestingPage() {
         <p className="text-sm text-muted-foreground">Test strategies against historical data</p>
       </div>
 
-      {/* AI Parser */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Describe your strategy</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <textarea
-            className="w-full rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-[#0EA5E9]/50 focus:ring-1 focus:ring-[#0EA5E9]/30 transition-all duration-200 resize-y min-h-[80px]"
-            rows={3}
-            placeholder="e.g. EMA 20/50 cross on gold 15m, RSI above 50, SL 0.5%, RR 1:2, London session only"
-            value={promptText}
-            onChange={(e) => setPromptText(e.target.value)}
-          />
-          <div className="mt-3">
-            <Button onClick={handleParse} loading={parsing} disabled={parsing || !promptText.trim()} variant="secondary">
-              {parsing ? "Parsing..." : "Parse with AI"}
-            </Button>
-          </div>
-          {parseError && (
-            <p className="mt-3 text-sm text-destructive">{parseError}</p>
+      {/* Tabs */}
+      <div className="flex gap-1 rounded-lg bg-white/[0.03] p-1 w-fit">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
+              activeTab === t.key
+                ? "bg-white/[0.08] text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-white/[0.04]"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Templates Tab */}
+      {activeTab === "templates" && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {TEMPLATES.map((tmpl) => (
+            <button
+              key={tmpl.name}
+              disabled={isBusy}
+              onClick={() => {
+                if (isBusy) return;
+                fillFormFromDSL(tmpl.dsl);
+                setActiveTab("describe");
+              }}
+              className={`text-left glass rounded-xl p-4 border border-white/[0.06] transition-all duration-200 group ${isBusy ? "opacity-40 cursor-not-allowed" : "hover:border-[#0EA5E9]/30"}`}
+            >
+              <p className="font-semibold text-sm group-hover:text-[#0EA5E9] transition-colors">{tmpl.name}</p>
+              <p className="text-xs text-muted-foreground mt-1">{tmpl.dsl.market} {tmpl.dsl.timeframe}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{tmpl.summary}</p>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Saved Tab */}
+      {activeTab === "saved" && (
+        <div>
+          {savedLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
+          {!savedLoading && savedStrategies.length === 0 && (
+            <p className="text-sm text-muted-foreground">No recent strategies yet. Run a backtest to see them here.</p>
           )}
-        </CardContent>
-      </Card>
+          {!savedLoading && savedStrategies.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {savedStrategies.map((s) => (
+                <button
+                  key={s.id}
+                  disabled={isBusy}
+                  onClick={() => {
+                    if (isBusy) return;
+                    fillFormFromDSL(s.dsl);
+                    setActiveTab("describe");
+                  }}
+                  className={`text-left glass rounded-xl p-4 border border-white/[0.06] transition-all duration-200 group ${isBusy ? "opacity-40 cursor-not-allowed" : "hover:border-[#0EA5E9]/30"}`}
+                >
+                  <p className="font-semibold text-sm group-hover:text-[#0EA5E9] transition-colors">{s.name}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {s.dsl.market} {s.dsl.timeframe}
+                    {s.dsl.entry?.conditions && ` - ${s.dsl.entry.conditions.map(formatCondition).join(", ")}`}
+                  </p>
+                  <p className="text-xs text-muted-foreground/50 mt-1">
+                    {new Date(s.created_at).toLocaleDateString()}
+                  </p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Describe Tab (AI Parser) */}
+      {activeTab === "describe" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Describe your strategy</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <textarea
+              className="w-full rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-[#0EA5E9]/50 focus:ring-1 focus:ring-[#0EA5E9]/30 transition-all duration-200 resize-y min-h-[80px] disabled:opacity-40 disabled:cursor-not-allowed"
+              rows={3}
+              placeholder="e.g. EMA 20/50 cross on gold 15m, RSI above 50, SL 0.5%, RR 1:2, London session only"
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              disabled={isBusy}
+            />
+            <div className="mt-3">
+              <Button onClick={handleParse} loading={parsing} disabled={isBusy || !promptText.trim()} variant="secondary">
+                {parsing ? "Parsing..." : "Parse with AI"}
+              </Button>
+            </div>
+            {parseError && (
+              <p className="mt-3 text-sm text-destructive">{parseError}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Confirmation Panel */}
       {parseResult && (
@@ -395,8 +671,8 @@ export default function BacktestingPage() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <Button onClick={handleConfirm}>Confirm &amp; Fill Form</Button>
-              <Button variant="ghost" onClick={() => setParseResult(null)}>Edit manually</Button>
+              <Button onClick={handleConfirm} disabled={isRunning}>Confirm &amp; Fill Form</Button>
+              <Button variant="ghost" onClick={() => setParseResult(null)} disabled={isRunning}>Edit manually</Button>
             </div>
           </CardContent>
         </Card>
@@ -409,6 +685,7 @@ export default function BacktestingPage() {
             <CardTitle className="text-sm">Strategy Parameters</CardTitle>
           </CardHeader>
           <CardContent>
+            <fieldset disabled={isRunning}>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="Symbol">
                 <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} />
@@ -444,6 +721,7 @@ export default function BacktestingPage() {
                 <Input type="number" step="0.1" value={rrRatio} onChange={(e) => setRrRatio(+e.target.value)} />
               </Field>
             </div>
+            </fieldset>
 
             <div className="mt-6">
               <Button onClick={handleSubmit} loading={isRunning} disabled={isRunning}>
@@ -474,7 +752,14 @@ export default function BacktestingPage() {
             />
           </div>
 
-          {/* Equity Curve */}
+          {/* Save Strategy + Equity Curve */}
+          <div className="flex items-center gap-3">
+            <Button onClick={handleSaveStrategy} loading={saving} disabled={saving} variant="outline" size="sm">
+              {saving ? "Saving..." : "Save Strategy"}
+            </Button>
+            {saveSuccess && <span className="text-xs text-emerald-400">Strategy saved!</span>}
+          </div>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Equity Curve</CardTitle>

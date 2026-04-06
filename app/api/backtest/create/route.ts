@@ -25,7 +25,11 @@ export async function POST(req: NextRequest) {
     if (authErr || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const { dsl, config } = body as { dsl: Record<string, unknown>; config?: Record<string, unknown> };
+    const { dsl, config, saveOnly } = body as {
+      dsl: Record<string, unknown>;
+      config?: Record<string, unknown>;
+      saveOnly?: boolean;
+    };
 
     if (!dsl) return NextResponse.json({ error: "dsl is required" }, { status: 400 });
 
@@ -40,6 +44,10 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (stratErr) return NextResponse.json({ error: stratErr.message }, { status: 400 });
+
+    if (saveOnly) {
+      return NextResponse.json({ strategy_id: strategy.id, saved: true });
+    }
 
     const { data: job, error: jobErr } = await supabase
       .from("backtest_jobs")

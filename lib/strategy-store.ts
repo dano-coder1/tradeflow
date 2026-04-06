@@ -81,6 +81,24 @@ export async function syncActiveStrategyToProfile(strategy: SavedStrategy): Prom
   }
 }
 
+// ── Backtest DSL type (shared with backtesting page) ─────────────────────────
+
+export interface BacktestDSL {
+  market?: string;
+  timeframe?: string;
+  date_range?: { from: string; to: string };
+  entry?: {
+    direction?: string;
+    conditions?: Array<Record<string, unknown>>;
+  };
+  exit?: {
+    stop_loss?: { type: string; value: number };
+    take_profit?: { type: string; ratio: number };
+  };
+  filters?: Array<{ type: string; sessions?: string[] }>;
+  commission_pct?: number;
+}
+
 // ── Curated strategies ───────────────────────────────────────────────────────
 
 export interface CuratedStrategy {
@@ -91,6 +109,7 @@ export interface CuratedStrategy {
   difficulty: "beginner" | "intermediate" | "advanced";
   rules: string[];
   methodologyTags: string[];
+  backtest_dsl?: BacktestDSL;
 }
 
 export const CURATED_STRATEGIES: CuratedStrategy[] = [
@@ -141,6 +160,23 @@ export const CURATED_STRATEGIES: CuratedStrategy[] = [
       "SL below most recent swing low (longs) or high (shorts)",
       "Trail stop using EMA 21",
     ],
+    backtest_dsl: {
+      market: "XAUUSD",
+      timeframe: "15m",
+      entry: {
+        direction: "long",
+        conditions: [
+          { type: "ema_cross", fast: 9, slow: 21 },
+          { type: "rsi_above", period: 14, value: 50 },
+        ],
+      },
+      exit: {
+        stop_loss: { type: "fixed_pct", value: 0.5 },
+        take_profit: { type: "rr", ratio: 2.0 },
+      },
+      filters: [],
+      commission_pct: 0.07,
+    },
   },
   {
     name: "RSI Divergence Reversals",
@@ -157,6 +193,23 @@ export const CURATED_STRATEGIES: CuratedStrategy[] = [
       "SL below/above the divergence swing point",
       "TP at next major S/R level",
     ],
+    backtest_dsl: {
+      market: "XAUUSD",
+      timeframe: "15m",
+      entry: {
+        direction: "long",
+        conditions: [
+          { type: "rsi_below", period: 14, value: 35 },
+          { type: "ema_cross", fast: 20, slow: 50 },
+        ],
+      },
+      exit: {
+        stop_loss: { type: "fixed_pct", value: 0.6 },
+        take_profit: { type: "rr", ratio: 2.0 },
+      },
+      filters: [{ type: "session", sessions: ["london", "new_york"] }],
+      commission_pct: 0.07,
+    },
   },
   {
     name: "Supply & Demand Zone Trading",
@@ -189,6 +242,23 @@ export const CURATED_STRATEGIES: CuratedStrategy[] = [
       "TP at 5-10 pips, SL at 3-5 pips",
       "Maximum 5 trades per session, stop after 2 consecutive losses",
     ],
+    backtest_dsl: {
+      market: "XAUUSD",
+      timeframe: "1m",
+      entry: {
+        direction: "long",
+        conditions: [
+          { type: "ema_cross", fast: 9, slow: 21 },
+          { type: "rsi_above", period: 14, value: 70 },
+        ],
+      },
+      exit: {
+        stop_loss: { type: "fixed_pct", value: 0.15 },
+        take_profit: { type: "rr", ratio: 1.5 },
+      },
+      filters: [{ type: "session", sessions: ["london_ny_overlap"] }],
+      commission_pct: 0.07,
+    },
   },
   {
     name: "Swing Trading with Weekly Bias",
@@ -253,5 +323,22 @@ export const CURATED_STRATEGIES: CuratedStrategy[] = [
       "SL beyond the band by 1 ATR",
       "TP at middle band (20 SMA)",
     ],
+    backtest_dsl: {
+      market: "XAUUSD",
+      timeframe: "15m",
+      entry: {
+        direction: "long",
+        conditions: [
+          { type: "ema_cross", fast: 20, slow: 50 },
+          { type: "rsi_below", period: 14, value: 30 },
+        ],
+      },
+      exit: {
+        stop_loss: { type: "fixed_pct", value: 0.4 },
+        take_profit: { type: "rr", ratio: 1.5 },
+      },
+      filters: [{ type: "session", sessions: ["london", "new_york"] }],
+      commission_pct: 0.07,
+    },
   },
 ];
