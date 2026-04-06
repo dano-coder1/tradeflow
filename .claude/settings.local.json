@@ -23,7 +23,16 @@
       "Bash(mkdir -p C:/Users/danoo/Documents/tradeflow/app/api/trades/universal-csv-import/save)",
       "Bash(xargs grep:*)",
       "mcp__claude_ai_Supabase__list_projects",
-      "mcp__claude_ai_Supabase__apply_migration"
+      "mcp__claude_ai_Supabase__apply_migration",
+      "Bash(git:*)",
+      "Bash(cp:*)",
+      "Bash(cp .claude/worktrees/eager-jones/lib/assistant/ai-client.ts C:/Users/danoo/Documents/tradeflow/lib/assistant/ai-client.ts)",
+      "Bash(cp .claude/worktrees/eager-jones/lib/assistant/context-builder.ts C:/Users/danoo/Documents/tradeflow/lib/assistant/context-builder.ts)",
+      "Bash(cp .claude/worktrees/eager-jones/lib/assistant/prompt-builder.ts C:/Users/danoo/Documents/tradeflow/lib/assistant/prompt-builder.ts)",
+      "mcp__claude_ai_Vercel__deploy_to_vercel",
+      "Bash(pip install:*)",
+      "Bash(python -c ':*)",
+      "Bash(timeout 5 python -m uvicorn main:app --host 127.0.0.1 --port 8100)"
     ]
   }
 }

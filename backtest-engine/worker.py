@@ -8,8 +8,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Debug (môžeš neskôr zmazať)
-print("SUPABASE_URL =", os.environ.get("SUPABASE_URL"))
+
 
 import logging
 import time
