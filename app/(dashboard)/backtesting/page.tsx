@@ -254,6 +254,40 @@ export default function BacktestingPage() {
     }
   }, [fillFormFromDSL]);
 
+  // Check for AI parse request from strategy library
+  useEffect(() => {
+    const text = sessionStorage.getItem("tf:backtest-ai-parse");
+    if (!text) return;
+    sessionStorage.removeItem("tf:backtest-ai-parse");
+
+    setActiveTab("describe");
+    setPromptText(text);
+    setParsing(true);
+    setParseError("");
+    setParseResult(null);
+
+    fetch("/api/backtest/parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.error === true && data.message) {
+          setParseError("This strategy cannot yet be converted into a backtestable rule set.");
+        } else if (data.dsl) {
+          setParseResult(data as ParseResult);
+        } else {
+          setParseError("This strategy cannot yet be converted into a backtestable rule set.");
+        }
+      })
+      .catch(() => {
+        setParseError("This strategy cannot yet be converted into a backtestable rule set.");
+      })
+      .finally(() => setParsing(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // -----------------------------------------------------------------------
   // Fetch saved strategies
   // -----------------------------------------------------------------------

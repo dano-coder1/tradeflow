@@ -282,9 +282,16 @@ export function StrategyLibrary() {
                           <FlaskConical className="h-3.5 w-3.5" /> Backtest
                         </button>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.04] px-3 py-1.5 text-xs text-muted-foreground/50 cursor-not-allowed">
-                          <FlaskConical className="h-3.5 w-3.5" /> Backtest coming soon
-                        </span>
+                        <button
+                          onClick={() => {
+                            const text = `${c.name} on ${c.marketFit[0] ?? "forex"}. ${c.rules.join(". ")}`;
+                            sessionStorage.setItem("tf:backtest-ai-parse", text);
+                            router.push("/backtesting");
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-[#8B5CF6]/10 px-3 py-1.5 text-xs font-semibold text-[#8B5CF6]/70 hover:bg-[#8B5CF6]/20 hover:text-[#8B5CF6]"
+                        >
+                          <Sparkles className="h-3.5 w-3.5" /> Backtest with AI
+                        </button>
                       )}
                     </div>
                   </div>
